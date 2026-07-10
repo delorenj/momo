@@ -1,0 +1,15 @@
+{
+  "project_name": "Momo",
+  "project_description": "",
+  "project_slug": "momo",
+  "repo_path": "/home/delorenj/code/33GOD/momo",
+  "ticket_provider": {
+    "type": "plane",
+    "workspace": "33god",
+    "identifier": "MOMO",
+    "board_id": "",
+    "board_url": "",
+    "state": "planned"
+  },
+  "agents": {}
+}
