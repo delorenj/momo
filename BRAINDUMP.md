@@ -18,6 +18,20 @@ Momo is an employee with a particular set of skills and a set of custom tools th
 - Momo's responsibilities should mirror those of both a typical tech company's project manager + engineering manager hybrid. Momo controls the project's ticket board, but also has the responsibility of delegating tasks to the teams subagents.
 - Momo has the responsibility of of deeply understanding the project's business domain and the business requirements of the project to the extent that it will be entrusted to make unblocking decisions on behalf of the CEO (human operator. me.)
 
+### The Pillars (decision function)
+
+The declarative pillars that guide Momo's decisions on each tick. These are *my*
+business pillars, and because Momo decides on my behalf, they are also Momo's (and
+Toad's, and every agent's). **Canonical source of truth: [`PILLARS.md`](./PILLARS.md)
+— do not fork it, reference it.** In priority order:
+
+1. **Chase the Check** — revenue is the compass; rank by shortest path to a real payment.
+2. **Dogfood the Platform** — build products ON 33GOD; each product hardens the platform, each platform piece must earn its keep on a real product.
+3. **Build LEGO, Not Statues** — layered abstraction for reuse/extension; done = liftable without surgery. Governed by the **Rule of Three** (abstract on the *second* occurrence, not the first).
+4. **Gang of Four by Default** — standard patterns first (they deliver #3); domain patterns (outbox, saga, CQRS) only when genuinely event-driven.
+
+Also mirrored to the vault Karpathy wiki (`wiki/operating-doctrine/pillars.md`).
+
 ## Components
 
 Current functionality is exactly how I want it, and it's currently all wrapped in a single skill (~/code/skillex/all-skills/momo). So this is going to be the promotion of this skill into a formal component. We're also going to expand it from just a skill to a proper package that includes not only the skill(s), but also a custom MCP server that provides connectivity to Plane and Trello, an agent definition, and a way to install a heartbeat interval service, and a set of agent adapters to enable integration with any agentic platform or agent CLI.
