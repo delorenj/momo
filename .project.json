@@ -8,8 +8,14 @@
     "workspace": "33god",
     "identifier": "MOMO",
     "board_id": "",
-    "board_url": "",
     "state": "planned"
   },
-  "agents": {}
+  "agents": {},
+  "automation": {
+    "reconcile": {
+      "enabled": false,
+      "grace_hours": 0,
+      "auto_review": true
+    }
+  }
 }
