@@ -10,6 +10,20 @@ many carriers. Do not fork this file; reference it.
 > **Canonical home:** `33GOD/momo/PILLARS.md`. Copies elsewhere (BRAINDUMP,
 > vault wiki, agent souls) are projections of this file, not competitors to it.
 
+### Wiring checklist — who references this file
+
+Each agent's spec/soul must **reference** this file, never copy it. Wire the
+pointer when the spec is created; check it off here. A copy that drifts is a bug.
+
+| Carrier | Reference point | Status |
+|---|---|---|
+| Momo BRAINDUMP | `momo/BRAINDUMP.md` → Pillars section | ✅ wired |
+| Vault Karpathy wiki | `DeLoDocs/wiki/operating-doctrine/pillars.md` | ✅ wired |
+| Hindsight (`momo` bank) | retained under `conventions` | ✅ wired |
+| Momo agent spec/soul | *(spec not created yet — wire on creation)* | ⬜ pending |
+| Toad agent soul | `~/code/toad/…` *(soul not created yet — wire on creation)* | ⬜ pending |
+| Future agents | each new soul/spec | ⬜ per-agent |
+
 The pillars are listed in **priority order**. When two collide, the lower number
 wins.
 
