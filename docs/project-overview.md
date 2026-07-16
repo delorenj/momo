@@ -14,12 +14,17 @@ unblocking decisions **on the CEO's behalf** using a declarative decision functi
 [PILLARS.md](../PILLARS.md)).
 
 This repository is **not yet an implementation** — it is the **promotion target** for an
-existing, proven skill. Momo currently lives as a single working skill at
-`~/code/skillex/all-skills/momo`; this repo is where that skill is being promoted into a
-formal, reusable 33GOD **component** (skill package + MCP server + generic agent
-definition + adapters + heartbeat service + memory). As of this scan, the repo contains
-the **vision** ([BRAINDUMP.md](../BRAINDUMP.md)), the **doctrine** ([PILLARS.md](../PILLARS.md)),
-and a **pjangler CommonProject scaffold** — no product source code has been written here yet.
+existing, proven skill. Momo currently lives as a **fully-working skill** at
+`~/code/33GOD/skills/momo` (SKILL.md + references + templates + Python/Bash scripts); this
+repo is where that skill is being promoted into a formal, reusable 33GOD **component**
+(packaged skill + generic agent definition + fanout adapters; MCP proxy + heartbeat are
+**deferred** per the Rule of Three). As of this scan, the repo contains the **vision**
+([BRAINDUMP.md](../BRAINDUMP.md)), the **doctrine** ([PILLARS.md](../PILLARS.md)), a
+**pjangler CommonProject scaffold**, and the **planning artifacts**
+([brief](../_bmad-output/planning-artifacts/product-brief.md) ·
+[PRD](../_bmad-output/planning-artifacts/PRD.md) ·
+[epics](../_bmad-output/planning-artifacts/epics.md)) — no product source code has been
+written here yet.
 
 > Momo is the **interactive / human-drivable twin** of the **autonomous Hermes PM**. Both
 > share the same Plane board and the same per-project Hindsight memory bank. The end state:
@@ -29,13 +34,13 @@ and a **pjangler CommonProject scaffold** — no product source code has been wr
 ## Project Classification
 
 - **Repository Type:** Monolith (single `pjangler` CommonProject repo)
-- **Project Type(s):** Agentic component / platform building block — pre-implementation.
-  Target surface spans a **backend service (MCP server)**, a **CLI/skill workflow**, and
-  an **agent definition + adapters**. Does not map cleanly onto a single BMAD project type
-  (web/backend/cli/library/…); it is a *composite* component.
-- **Primary Language(s):** None committed yet. Scaffold is Markdown + TOML + Bash. The
-  implementation language for the MCP server and adapters is **undecided** (TypeScript or
-  Python are the 33GOD norms; to be chosen during planning).
+- **Project Type(s):** Agentic component / platform building block — promotion of a working
+  skill. Target surface spans a **CLI/skill workflow**, a **generic agent definition +
+  fanout adapters**, and (deferred) an MCP proxy + heartbeat. Does not map cleanly onto a
+  single BMAD project type (web/backend/cli/library/…); it is a *composite* component.
+- **Primary Language(s) (decided):** **Python3-stdlib + Bash** for the skill glue (lifted
+  verbatim from the proven skill) and **TypeScript/Node** for the component wrapper (CLI +
+  fanout + any future MCP), matching the toad/pjangler house norm.
 - **Architecture Pattern:** *Intended* — Proxy over ticket providers, Adapter for agent
   CLIs, Strategy for provider selection, plus an event-driven heartbeat loop. See
   [architecture.md](./architecture.md).

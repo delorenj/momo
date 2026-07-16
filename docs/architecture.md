@@ -1,9 +1,20 @@
 # Momo - Architecture
 
 **Date:** 2026-07-16
-**Status:** Pre-implementation. This document captures the **intended** architecture
-(distilled from [BRAINDUMP.md](../BRAINDUMP.md) + [PILLARS.md](../PILLARS.md) + the 33GOD
-ecosystem), the **current reality** (a scaffold), and the **gap** between them.
+**Status:** Pre-implementation (promotion job). This document captures the **intended**
+architecture (distilled from [BRAINDUMP.md](../BRAINDUMP.md) + [PILLARS.md](../PILLARS.md) +
+the 33GOD ecosystem), the **current reality**, and the **gap**.
+
+> **Reality update (2026-07-16, post-research):** A 4-investigator grounding pass corrected
+> three earlier assumptions in this doc. (1) The working Momo is a **fully functional skill**
+> at **`~/code/33GOD/skills/momo`** (not the stale `skillex` path BRAINDUMP cites) — this is a
+> **promotion**, not a greenfield build. (2) The **MCP proxy server is DEFERRED** (Rule of
+> Three), not a core MVP part — `momo-board.sh` already is the working proxy. (3) The
+> implementation **language is decided** (two-tier: Python/Bash glue + TS/Node wrapper). The
+> forward plan now lives in the planning artifacts:
+> [product-brief](../_bmad-output/planning-artifacts/product-brief.md) ·
+> [PRD](../_bmad-output/planning-artifacts/PRD.md) ·
+> [epics](../_bmad-output/planning-artifacts/epics.md). Sections below are annotated where superseded.
 
 ---
 
@@ -18,9 +29,10 @@ project without surgery* (Pillar #3) and *installed into any agent CLI via adapt
 is the **interactive twin** of the autonomous **Hermes PM**; both share one Plane board and
 one Hindsight bank per project.
 
-**Today** the repo contains only vision + doctrine + scaffold. **The build** is the
-promotion of the proven skill at `~/code/skillex/all-skills/momo` into the six formal
-components below.
+**Today** the *repo* contains only vision + doctrine + scaffold — but the *skill* at
+`~/code/33GOD/skills/momo` is a fully working PM/EM orchestrator. **The build** is the
+**promotion** of that proven skill into a liftable, versioned component (the parts below),
+maximizing reuse rather than rebuilding.
 
 ## 2. Architectural North Star (from BRAINDUMP)
 
@@ -35,7 +47,7 @@ components below.
 |---|---|---|
 | Form | pjangler CommonProject scaffold + 2 docs | Formal 33GOD component (6 parts) |
 | Product code | **none** | MCP server + agent spec + adapters + heartbeat |
-| Working impl | lives at `~/code/skillex/all-skills/momo` (a skill) | promoted & generalized into this repo |
+| Working impl | fully-working skill at `~/code/33GOD/skills/momo` | promoted & generalized into this repo |
 | Ticket board | `.project.json` → Plane `33god/MOMO`, `board_id` empty, `state: planned` | live board driven via `tp`/Trello adapter |
 | Runtime driver | none | manual (Telegram/CLI/web/Bloodbank) **or** heartbeat interval |
 | Memory | (inherits current Hermes PM bank) | Hindsight, one bank per project |
@@ -45,24 +57,29 @@ components below.
 
 Momo-the-component is six liftable parts. Status reflects this scan.
 
-### 4.1 Skill package  ·  status: 🟡 exists elsewhere, not promoted
+### 4.1 Skill package  ·  status: 🟢 WORKING at `33GOD/skills/momo` — lift into repo
 
 The precise workflows that are Momo's job description: survey board → triage/refine →
 decide-what's-next → orchestrate a ticket (delegating all code) → review → clear the board
-→ record decisions. Proven today as `~/code/skillex/all-skills/momo`; this repo promotes it.
-The interactive `momo` skill/agent already published in the ecosystem is the reference shape.
+→ record decisions. **Fully implemented and proven today** at `~/code/33GOD/skills/momo`
+(SKILL.md + 6 references + 3 templates + `scripts/{momo-board.sh, record-decision.py,
+momo-config.py, providers/trello.py}`). The promotion **lifts this verbatim** as the
+component's SSOT — it is already byte-correct against the live Bloodbank/`tp` contracts.
 
-### 4.2 MCP server (provider proxy)  ·  status: 🔴 not started
+### 4.2 MCP server (provider proxy)  ·  status: ⛔ DEFERRED (Rule of Three — 2nd consumer)
 
-A **third** MCP server that sits *above* the existing **Plane** server and the existing
-**Trello** server as a **proxy** exposing **high-level PM verbs** (e.g. list-board,
-triage-ticket, pick-next, move-lane, record-decision). It **delegates** each verb to the
-correct backend based on the project's configured provider.
+> **Corrected (D5):** `momo-board.sh` is *already* the working provider proxy at the shell
+> level (resolves `.project.json.ticket_provider.type`, dispatches to `tp` for plane/linear
+> or bundled `trello.py`, over the normalized 7-op / 5-state contract). A separate MCP proxy
+> has **only one real driver today**, so building it now would violate the Rule of Three.
 
-- **Pattern:** **Proxy** (unified PM facade) + **Strategy/Adapter** (per-provider backend)
-  + **Factory** (construct the backend from `.project.json`).
-- **Resolution:** provider comes from `.project.json.ticket_provider.type`
-  (`plane` today; `trello` via bundled adapter + `.momo/config.json` lane map).
+When a *second* consumer needs programmatic board access, build a **thin TS MCP** (~8–10
+coarse verbs) that **delegates to `momo-board.sh`/`tp`/`trello.py`** — **never to the Python
+Plane MCP** (that creates a divergent board-resolution path and desyncs from Hermes;
+`board-awareness.md` forbids it), and **never** re-proxies the raw 61+90 Plane/Trello tools.
+
+- **Pattern:** **Proxy/Facade** (small coarse PM API) + **Strategy** (per-provider backend)
+  + **Factory** (backend from `.project.json`). Language: **TypeScript** (toad/pjangler norm).
 
 ### 4.3 Generic agent definition  ·  status: 🔴 not started
 
@@ -169,21 +186,29 @@ Candystore (event persistence)   ←── consumes/audits
 Holocene  (control plane + dash)  ←── observes/controls
 pjangler  (project registry/bootstrap) ── scaffolded this repo (.project.json)
 Hermes-fleet (autonomous PM twin) ── shares board + bank; Hermes adapter target
-Plane / Trello (ticket backends)  ←── proxied by Momo's MCP server
-Hindsight (memory framework)      ←── one bank per project
+Plane / Trello (ticket backends)  ←── driven via momo-board.sh → tp adapter (NOT Plane MCP)
+Hindsight (memory framework)      ←── one bank per project (shared with Hermes twin)
+Toad (project custodian)          ── cousin: births/audits repos; Momo reuses its fanout engine
 ```
 
-## 10. The Gap — what "build Momo" entails
+## 10. The Gap — what "build Momo" entails (corrected & sequenced)
 
-To go from scaffold → working component:
+Language is **decided** (two-tier: Python/Bash glue lifted verbatim + TS/Node wrapper á la
+toad/pjangler). Decision events + memory are **already wired** in the skill. So the real work
+is packaging & seams, sequenced by shortest-path-to-demo — full backlog in
+[epics.md](../_bmad-output/planning-artifacts/epics.md):
 
-1. **Choose the implementation language/runtime** for the MCP server + adapters (undecided).
-2. **Promote the skill** (`~/code/skillex/all-skills/momo`) into this repo and generalize it.
-3. **Build the provider-proxy MCP server** (Proxy + Strategy/Factory over Plane & Trello).
-4. **Extract the generic agent spec** and build the **six adapters** (Hermes first).
-5. **Lift the heartbeat** from the Hermes fleet into a Momo-owned interval service.
-6. **Wire Bloodbank** decision-event publishing and **Hindsight** per-project memory.
-7. **Close the scaffold gaps** (see development-guide) so `mise enter` is clean.
+1. **E0 — Board bring-up:** self-heal MOMO `board_id` (empty today), seed the backlog.
+2. **E1 — Promote the skill:** lift `33GOD/skills/momo` verbatim as the component SSOT;
+   verify contract byte-correctness; wire the PILLARS reference; correct these docs.
+3. **E2 — Component wrapper:** TS/Node two-bin `@delorenj/momo` (toad skeleton) wrapping the
+   Python/Bash glue; mise build/test/version.
+4. **E3 — Fanout install + Claude adapter (demo):** lift Toad's fanout engine; author the
+   generic master spec (contract⁄personality split, references PILLARS); `momo install`.
+5. **E4 — Second CLI adapter:** validate the seam (Rule of Three).
+6. **E5 (deferred/gated):** autonomous twin — lift the Hermes heartbeat via a Hermes adapter.
+7. **E6 (deferred/gated):** thin MCP proxy — *delegating to `tp`*, only on a 2nd consumer.
+8. **Housekeeping:** close the scaffold gaps (see development-guide) so `mise enter` is clean.
 
 ## 11. Testing Strategy (intended)
 

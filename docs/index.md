@@ -1,10 +1,11 @@
 # Momo Documentation Index
 
 **Type:** Monolith (pjangler CommonProject) — agentic PM/EM component
-**Primary Language:** none committed yet (Markdown/TOML/Bash scaffold; impl language TBD)
-**Architecture:** Modular, adapter-based, provider-agnostic (intended)
-**Status:** Pre-implementation (vision + doctrine + scaffold)
+**Primary Language (decided):** Python3-stdlib + Bash (skill glue, lifted verbatim) · TypeScript/Node (component wrapper, toad norm)
+**Architecture:** Modular, adapter-based, provider-agnostic
+**Status:** Pre-implementation — **promotion job** (working skill exists; repo is being packaged)
 **Last Updated:** 2026-07-16
+**Forward plan:** [product-brief](../_bmad-output/planning-artifacts/product-brief.md) · [PRD](../_bmad-output/planning-artifacts/PRD.md) · [epics](../_bmad-output/planning-artifacts/epics.md)
 
 ## Project Overview
 
@@ -15,9 +16,10 @@ via a declarative decision function ([The Pillars](../PILLARS.md)). It is the in
 twin of the autonomous **Hermes PM** and shares its Plane board and Hindsight bank per
 project.
 
-This repo is the **promotion target**: the proven skill at `~/code/skillex/all-skills/momo`
-is being formalized into a reusable component (skill + MCP server + generic agent spec +
-adapters + heartbeat + memory). **No product code exists in this repo yet.**
+This repo is the **promotion target**: the **fully-working skill** at `~/code/33GOD/skills/momo`
+is being formalized into a reusable, versioned component (packaged skill + generic agent spec
++ fanout adapters; MCP proxy and heartbeat **deferred**). **No product code exists in this
+repo yet** — the working behavior lives in the skill and gets lifted here.
 
 ## Quick Reference
 
@@ -104,13 +106,17 @@ project is pre-implementation, treat these docs as the **design brief**, not a c
 - **Avoid the framework noise:** ignore `.claude/`, `.agents/`, `.opencode/`, `.github/`,
   `_bmad/` — these are fanned-out ecosystem config, not Momo's code
   ([why](./source-tree-analysis.md#signal-vs-noise-read-this-first)).
-- **Reference implementation:** the working skill at `~/code/skillex/all-skills/momo` and
-  the **Hermes fleet** (heartbeat, soul/role modeling, memory wiring).
+- **Reference implementation:** the working skill at `~/code/33GOD/skills/momo` (lift SSOT),
+  **Toad** `src/fanout` (the install/adapter engine to reuse), and the **Hermes template**
+  (heartbeat, soul/role modeling, memory wiring — for the deferred autonomous twin).
 
 ### Next Logical Step
 
-Kick off the build-planning chain: **product brief → PRD → architecture → epics/stories**
-(BMAD), grounded in this docs set and the two source documents.
+The build-planning chain is **done** (2026-07-16): see
+[product-brief](../_bmad-output/planning-artifacts/product-brief.md),
+[PRD](../_bmad-output/planning-artifacts/PRD.md), and
+[epics](../_bmad-output/planning-artifacts/epics.md). Next: bring up the MOMO board (**E0**)
+and start **E1 — promote the skill** into this repo.
 
 ---
 
