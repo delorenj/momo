@@ -40,14 +40,27 @@ Today, using Momo on a new project means hand-carrying a skill and its glue. The
 | One-command install | `momo install` drops the skill into any CommonProject repo; `momo fanout check` passes as a CI drift gate |
 | Zero behavior regression | The installed component triages/delegates/reviews/clears a board and emits decision events **identically** to today's skill |
 | Liftable (Pillar #3) | Momo installs into a *second* repo with no surgery; the generic spec renders into ≥2 CLI dialects |
-| Dogfood proof (Pillar #2) | Momo runs its **own** MOMO board end-to-end (self-heal `board_id`, clear the backlog) |
-| Consistency (Pillar #4) | Component matches the house norm (toad/pjangler two-bin TS skeleton; Python/Bash glue lifted verbatim) |
+| Dogfood proof (Pillar #2) | Momo clears a real slice of a **revenue product's** board (the circular "runs its own MOMO board" metric is dropped) |
+| No split-brain (NFR) | On a repo with a live Hermes PM, Momo and Hermes coexist under a **real shared lock** — no board thrash (proven, not asserted) |
+| Consistency (Pillar #4) | Component matches the house norm (toad/pjangler two-bin TS skeleton; Python/Bash glue lifted verbatim) — *post-demo* |
 
-## 6. MVP scope (the first sellable/demoable slice)
+## 6. MVP scope (the first sellable/demoable slice) — *lean, demo-first*
 
-**In:** promote the proven skill as the component's SSOT; lift **Toad's fanout engine**; ship **one adapter (Claude Code skills-tree)**; a TS/Node two-bin package (`@delorenj/momo`, CLI + reserved MCP bin) with versioning; self-heal + seed the MOMO board.
+> **Revised (v2, post-review):** the first draft over-scoped this. The review showed the
+> generic-spec + fanout machinery is a Rule-of-Three violation on the *first* call-site — so
+> the MVP ships the **proven Claude skill directly** and defers that machinery to the 2nd adapter.
 
-**Demo:** *point Momo at a CommonProject repo → one command installs it → watch it triage, delegate, review, and clear the board while emitting decision events.* (The behavior already exists; the MVP makes it installable and versioned.)
+**In:** provision the board-drivability prerequisite (a `tp` adapter for plane/linear, or a
+Trello board); promote the proven skill as SSOT (verbatim except parameterizing the decision
+`actor.cli`); a **minimal `momo install`** that drops the proven Claude skills-tree into a
+target repo; a `momo doctor` prereq gate; a real WIP=1 lock; and the demo **recorded first**.
+
+**Demo:** *point Momo at a **revenue product's** repo → one command installs it → watch it
+triage, delegate, review, and clear a real slice of that board while emitting decision events.*
+(The behavior already exists; the MVP makes it installable, safe alongside Hermes, and proven.)
+
+**Explicitly NOT in the MVP** (moved to E4, the honest 2nd occurrence): the generic master
+spec, Toad's fanout engine extraction, and the TS house-norm packaging — all *after* the demo.
 
 ## 7. Explicitly out of scope for MVP (deferred, Rule-of-Three-gated)
 
@@ -60,12 +73,18 @@ Today, using Momo on a new project means hand-carrying a skill and its glue. The
 ## 8. Non-negotiable constraints (locked contracts)
 
 1. **Never edits code** — Momo delegates every change to a subagent. The component must not add code-editing to Momo itself.
-2. **Board access only via `momo-board.sh` → `tp` adapter** — never direct Plane/Trello API, never `project-lifecycle`'s plane path (desyncs from Hermes). Normalized **5 states** / **7 ops**.
+2. **Board access only via `momo-board.sh` → `tp` adapter** — never direct Plane/Trello API, never `project-lifecycle`'s plane path (desyncs from Hermes). Normalized **5 states**; Momo speaks **6 of the `tp` contract's 7 ops** (`create_board` is reserved to Toad/pjangler per D6).
 3. **Decision event = `bloodbank.v1.repo.decision.recorded`** — exactly 5 tokens, repo slug in `data.repo` (the 6-token form is rejected). Provider/CLI names are banned in the type.
 4. **Hindsight bank = `project_slug`**, shared with the Hermes twin — never split by agent identity.
 5. **`PILLARS.md` is referenced, never forked** — wire the pending "Momo agent spec/soul" checklist row; `basis[]` slugs on decisions map to the pillars.
 6. **WIP=1 shared with Hermes** — check sentinel state before dispatch; sign board comments/events as `momo`.
 7. **Two-language norm** — don't rewrite working Python/Bash in TS; wrap it.
+8. **Board-drivability prerequisite** — for plane/linear, a `tp` adapter must be installed in
+   the target repo's `role_dir` (via Hermes/pjangler — *not* Momo); `momo-board.sh` exits 2
+   without it. Trello needs none. "Liftable without surgery" is gated by `momo doctor`, which
+   hard-fails until all prereqs (python3, bash, adapter/creds, `$BLOODBANK_HOME`, keys) are green.
+9. **Two-tier pillars** — decisions cite **process** pillars (`references/pillars.md`) and/or
+   **product** pillars (`PILLARS.md`); process/safety pillars are never overridden by a product one.
 
 ## 9. Key decisions made on the CEO's behalf (with basis)
 
@@ -85,9 +104,20 @@ Today, using Momo on a new project means hand-carrying a skill and its glue. The
 - **Board desync** → any divergent board-resolution path (Plane MCP, project-lifecycle plane json) breaks byte-identity with Hermes. *Mitigate: single seam = `momo-board.sh`/`tp`.*
 - **Autonomy-first scope creep** → building the heartbeat twin before validating the manual loop. *Mitigate: manual slice first.*
 
-## 11. Open question only the CEO can answer
+## 11. The one gating decision only the CEO can make
 
-**Which revenue-bearing product should Momo dogfood first?** Pillar #2 wants a real product pulling on this platform work; that product's board should be the first non-MOMO board Momo runs after the MVP. (Everything else in this brief I've decided; this one is a business-pipeline input.)
+**Which revenue-bearing product does Momo dogfood first — or is there none yet?** This is now
+a **hard gate on the build, not a footnote** (the adversarial review showed the whole MVP,
+scoped to MOMO-on-MOMO, is a statue by Pillar #2's own definition). Two branches:
+
+- **A product X is ready** → the E2 demo runs on **X's board**; the promotion is justified
+  (it hardens the PM of a real revenue product). Everything else in this brief I've decided.
+- **No product is ready to pull on Momo yet** → the pillar-consistent call is to **defer the
+  promotion** and keep using the skill as-is (Rule of Three: don't build the abstraction on
+  spec). The plan stays on the shelf, ready, costing nothing.
+
+*(Everything else — language, sequencing, scope, contracts — I've decided on your behalf. This
+is the single business-pipeline input I can't derive from the code or the doctrine.)*
 
 ---
 

@@ -45,8 +45,8 @@ maximizing reuse rather than rebuilding.
 
 | Dimension | Current (2026-07-16) | Target |
 |---|---|---|
-| Form | pjangler CommonProject scaffold + 2 docs | Formal 33GOD component (6 parts) |
-| Product code | **none** | MCP server + agent spec + adapters + heartbeat |
+| Form | pjangler CommonProject scaffold + 2 docs | Formal 33GOD component |
+| Product code | **none** | **MVP target:** lifted skill SSOT + minimal `momo install` (Claude skill payload). **Deferred/gated:** generic spec + fanout (E4), heartbeat (E5), MCP proxy (E6) |
 | Working impl | fully-working skill at `~/code/33GOD/skills/momo` | promoted & generalized into this repo |
 | Ticket board | `.project.json` → Plane `33god/MOMO`, `board_id` empty, `state: planned` | live board driven via `tp`/Trello adapter |
 | Runtime driver | none | manual (Telegram/CLI/web/Bloodbank) **or** heartbeat interval |
@@ -99,14 +99,19 @@ Adapters port the generic core into each target environment. Planned:
 - The **Hermes adapter** is the bridge to the existing fleet: it takes the generic spec and
   emits the soul + role files a Hermes PM expects.
 
-### 4.5 Heartbeat interval service  ·  status: 🔴 not started (reference exists)
+### 4.5 Heartbeat interval service  ·  status: ⛔ DEFERRED/GATED (E5; reference exists)
 
 Gives Momo **agency**: on each tick it evaluates a declarative goal set against The Pillars
-and acts. Today this capability *is* the Hermes fleet's **systemd** interval PMs; the plan
-is to **lift that mechanism into this component** largely unchanged.
+and acts. Today this capability *is* the Hermes fleet's **systemd** interval PM — specifically
+the **scrum-master** role's `continuous-ticket-sentinel` (a `.timer` firing a cheap bash gate
+around one LLM pass). ⚠️ **Not** the gateway `pm` role, which is event-driven (Telegram +
+bloodbank inbox) — the two are provisioned differently, and E5 must target the sentinel path.
+The plan **lifts the sentinel mechanism** largely unchanged (the reconcile-*pass* definition
+is unified in the MVP — E1/S1.5 — since it already has two live call-sites; only the *trigger*
+and provisioning are deferred).
 
-- **Pattern:** **Observer/scheduler loop** (tick → evaluate → act) over a declarative goal
-  set; **Template Method** for the per-tick procedure.
+- **Pattern:** **Scheduler** / polling loop (timer → gate → pass); **Template Method** for the
+  per-tick procedure. *(Not Observer — a fixed-interval poll has no state-change subscription.)*
 
 ### 4.6 Memory (Hindsight)  ·  status: 🟢 model decided
 
@@ -133,19 +138,35 @@ forced to decide while blocked, the lowest-numbered applicable pillar is the tie
 > **Momo is the Rule of Three made flesh:** it shipped concrete as a skill, got proven, and
 > is *now* (second occurrence) being extracted into a reusable component — earned, not guessed.
 
+### 5a. Two-tier decision function (don't conflate)
+
+The 4 pillars above are the **product** tier (`PILLARS.md`, per-repo `.momo/pillars.md`). The
+as-built skill *also* carries a **process** tier in `references/pillars.md` — universal
+operating slugs Momo cites as decision `basis[]`: `keep-the-pipeline-unblocked`,
+`delegate-every-code-change`, `evidence-over-status`, `independent-adversarial-review`,
+`everything-is-an-event`, `bias-to-reversible-action`, `respect-the-contracts`,
+`one-source-of-truth`, `smallest-safe-increment`. (E.g. the `board_id` self-heal records
+basis = `one-source-of-truth` + `respect-the-contracts` — process slugs, not product ones.)
+
+**Safety-supremacy invariant:** the process/safety pillars (no-code-mutation,
+reviewer-independence, evidence, respect-the-contracts) are **never** overridden by a product
+pillar — Chase-the-Check can reorder *what* Momo does, never *whether* it delegates code or
+reviews independently. Any `basis[]` validator must accept **both** tiers.
+
 ## 6. Design Patterns (Pillar #4 mapping)
 
 Naming the GoF pattern is doctrine, so the intended design is stated in those terms:
 
-| Concern | Pattern(s) |
-|---|---|
-| Unified PM API over Plane/Trello servers | **Proxy** + **Facade** |
-| Selecting the ticket backend at runtime | **Strategy** + **Factory** (from `.project.json`) |
-| Installing into each agent CLI | **Adapter** (fan-out) |
-| Provider lane/status mapping (Trello) | **Adapter** + config map (`.momo/config.json`) |
-| Per-tick autonomous procedure | **Template Method** + scheduler/**Observer** loop |
-| Composing workflow steps (triage→refine→orchestrate) | **Composite** / **Chain of Responsibility** |
-| Emitting decision provenance | **Observer** (publish to Bloodbank) |
+| Concern | Pattern(s) | On critical path? |
+|---|---|---|
+| Unified PM API over the `tp` adapter / `trello.py` normalized 7-op contract (**not** the Plane/Trello MCP servers — D5) | **Proxy** + **Facade** | ⛔ deferred (E6) |
+| Selecting the ticket backend at runtime | **Strategy** + **Factory** (from `.project.json`) | ✅ MVP (proven) |
+| Installing into each agent CLI | **Adapter** (fan-out) | ▫ E4 (2nd occurrence) |
+| Provider lane/status mapping (Trello) | **Adapter** + config map (`.momo/config.json`) | ✅ MVP (proven) |
+| Per-tick procedure | **Template Method** (fixed skeleton, overridable steps) | ⛔ deferred (E5) |
+| Heartbeat trigger | **Scheduler** / polling loop *(not Observer — no subscription)* | ⛔ deferred (E5) |
+| Composing workflow steps (triage→refine→orchestrate→review) | **Pipeline** (fixed-order stages) *(not Composite/Chain of Responsibility)* | ✅ MVP (proven) |
+| Emitting decision provenance | **Observer** (genuine publish/subscribe to Bloodbank) | ✅ MVP (wired) |
 
 ## 7. Cross-Cutting Concerns
 
@@ -169,11 +190,19 @@ sensitive is committed (`.env` is gitignored; `.env.op` holds only references).
 
 Momo and the **Hermes PM** are two drivers of the *same* system:
 
-- **Same** Plane board, **same** Hindsight bank per project.
-- **Hermes** = autonomous, systemd-heartbeat PM provisioned per project by the fleet.
-- **Momo** = the human-drivable, interactive counterpart of that same role.
-- The end state: a **Hermes adapter** lets the generic Momo core *become* a Hermes PM (soul
-  + role), so today's fleet behavior is just "Momo installed via the Hermes adapter."
+- **Same** Plane board, **same** Hindsight bank per project — so they **must not double-drive**.
+  WIP=1 needs a **real shared lock** (not politeness): the Hermes sentinel fires on a ~60s
+  timer, so an advisory "read state, then act" has a TOCTOU race. This coexistence lock is on
+  the **MVP** critical path (E2/S2.3) the instant Momo installs onto a Hermes-run repo — it is
+  *not* deferred with E5.
+- **Hermes** runs two distinct models: the **gateway `pm`** role (event-driven: Telegram +
+  bloodbank inbox) and the **scrum-master** role (the systemd **interval** `continuous-ticket-sentinel`).
+  The interval heartbeat is the scrum-master, not the pm.
+- **Momo** = the human-drivable, interactive counterpart of that same reconcile loop.
+- The end state: a **Hermes adapter** (net-new provisioning bridge — renders soul+role **and**
+  shells out to the copier template; *not* a file-render) lets the generic Momo core *become* a
+  Hermes PM. It must **neutralize honcho** (Hermes' native per-agent memory) so the twin uses
+  only the shared Hindsight bank.
 
 Implementers should **read the Hermes fleet implementation** as the primary reference for
 the heartbeat, role/soul modeling, and memory wiring.
