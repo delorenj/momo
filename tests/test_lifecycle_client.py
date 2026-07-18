@@ -19,7 +19,10 @@ SPEC.loader.exec_module(client)
 BLOODBANK_ROOT = Path(__file__).resolve().parents[2] / "bloodbank"
 SCHEMAS_ROOT = BLOODBANK_ROOT / "schemas"
 LIFECYCLE_ID = "11111111-1111-4111-8111-111111111111"
+SNAPSHOT_CORRELATION_ID = "22222222-2222-4222-8222-222222222222"
 SNAPSHOT_EVENT_ID = "33333333-3333-4333-8333-333333333333"
+SNAPSHOT_CAUSATION_ID = "44444444-4444-4444-8444-444444444444"
+OBLIGATION_INSTANCE_ID = "55555555-5555-4555-8555-555555555555"
 NOW = "2026-07-18T12:00:00Z"
 ACTOR = {"type": "agent_cli", "agent_id": "momo", "cli": "codex", "provider": "openai"}
 EVIDENCE = {
@@ -37,8 +40,8 @@ SCHEMA_BY_REF = {
     "bloodbank.v1.lifecycle.intent.submit.reply.v1": (
         "bloodbank/v1/lifecycle/intent.submit.reply.v1.json"
     ),
-    "bloodbank.v1.lifecycle.obligation_evidence.submitted.v1": (
-        "bloodbank/v1/lifecycle/obligation_evidence.submitted.v1.json"
+    "bloodbank.v1.lifecycle.obligation_evidence.submitted.v2": (
+        "bloodbank/v1/lifecycle/obligation_evidence.submitted.v2.json"
     ),
 }
 
@@ -63,6 +66,8 @@ def test_pending_obligation_is_direct_actor_work_not_unrelated_frontier_authorit
         "type": "bloodbank.v1.lifecycle.obligation_evidence.submitted",
         "subject": "bloodbank.evt.v1.lifecycle.obligation_evidence.submitted",
         "obligation_id": "independent-review",
+        "obligation_instance_id": OBLIGATION_INSTANCE_ID,
+        "activated_at": "2026-07-18T11:55:00Z",
         "obligation_kind": "independent_review",
         "target_actor_id": "agent:independent-reviewer",
         "invocation_id": command["id"],
@@ -71,6 +76,8 @@ def test_pending_obligation_is_direct_actor_work_not_unrelated_frontier_authorit
     assert "obligation_satisfied" not in json.dumps(plan)
     assert plan["decision_rationale"]["why"].startswith("independent")
     assert "decision_rationale" not in json.dumps(command)
+    assert command["correlationid"] == SNAPSHOT_CORRELATION_ID
+    assert command["causationid"] == SNAPSHOT_EVENT_ID
     validate_with_bloodbank(command)
 
 
@@ -83,7 +90,7 @@ def test_invocation_semantic_identity_is_exact_and_retry_stable():
     )["invocation_command"]
     assert retry == first
 
-    identity_fields = ("id", "command_id", "correlationid", "causationid", "idempotency_key")
+    identity_fields = ("id", "command_id", "idempotency_key")
     variants = []
     changed_parameters = projection()
     variants.append(
@@ -105,8 +112,17 @@ def test_invocation_semantic_identity_is_exact_and_retry_stable():
             changed_owner, actor=ACTOR, parameters={"review_depth": "adversarial"}
         )["invocation_command"]
     )
+    changed_occurrence = projection()
+    changed_occurrence["obligations"][0]["obligation_instance_id"] = str(uuid.uuid4())
+    variants.append(
+        client.build_obligation_invocation(
+            changed_occurrence, actor=ACTOR, parameters={"review_depth": "adversarial"}
+        )["invocation_command"]
+    )
     for variant in variants:
         assert all(variant[field] != first[field] for field in identity_fields)
+        assert variant["correlationid"] == SNAPSHOT_CORRELATION_ID
+        assert variant["causationid"] == SNAPSHOT_EVENT_ID
         validate_with_bloodbank(variant)
 
 
@@ -146,6 +162,7 @@ def test_completion_is_distinct_schema_exact_evidence_and_retry_stable():
     assert first["correlationid"] == invocation["invocation_command"]["correlationid"]
     assert first["ordering_key"] == f"lifecycle:{LIFECYCLE_ID}"
     assert first["data"]["obligation_id"] == "independent-review"
+    assert first["data"]["obligation_instance_id"] == OBLIGATION_INSTANCE_ID
     assert first["data"]["target_actor_id"] == "agent:independent-reviewer"
     assert first["data"]["evidence"] == EVIDENCE
     validate_with_bloodbank(first)
@@ -156,6 +173,18 @@ def test_completion_is_distinct_schema_exact_evidence_and_retry_stable():
     )["completion_evidence"]
     assert changed["id"] != first["id"]
     validate_with_bloodbank(changed)
+
+    with pytest.raises(client.LifecycleClientError, match="cannot predate"):
+        client.build_obligation_completion_evidence(
+            invocation, completed_at="2026-07-18T11:54:59Z", evidence=EVIDENCE
+        )
+
+    prior_occurrence = copy.deepcopy(invocation)
+    prior_occurrence["selection"]["obligation_instance_id"] = str(uuid.uuid4())
+    with pytest.raises(client.LifecycleClientError, match="obligation_instance_id"):
+        client.build_obligation_completion_evidence(
+            prior_occurrence, completed_at="2026-07-18T12:30:00Z", evidence=EVIDENCE
+        )
 
 
 @pytest.mark.parametrize(
@@ -190,6 +219,8 @@ def test_lifecycle_command_derives_capability_version_and_is_schema_exact():
     assert command["data"]["requested_at"] == NOW
     assert command["time"] == NOW
     assert command["data"]["expected_state_version"] == 7
+    assert command["correlationid"] == SNAPSHOT_CORRELATION_ID
+    assert command["causationid"] == SNAPSHOT_EVENT_ID
     assert plan["decision_rationale"]["why"] == "authority says legal"
     assert "decision_rationale" not in json.dumps(command)
     validate_with_bloodbank(command)
@@ -225,10 +256,47 @@ def test_lifecycle_semantic_identity_covers_every_material_request_field():
         parameters={"mode": "strict"},
         evidence={"artifact_id": "review:1", "result": "pass"},
     )["lifecycle_command"]
-    identity_fields = ("id", "command_id", "correlationid", "causationid", "idempotency_key")
+    identity_fields = ("id", "command_id", "idempotency_key")
     for variant in (changed_evidence, changed_parameters, changed_capability):
         assert all(variant[field] != first[field] for field in identity_fields)
+        assert variant["correlationid"] == SNAPSHOT_CORRELATION_ID
+        assert variant["causationid"] == SNAPSHOT_EVENT_ID
         validate_with_bloodbank(variant)
+
+
+@pytest.mark.parametrize(
+    "path,value,match",
+    [
+        (("source", "authority_source"), "urn:attacker", "authority_source"),
+        (("source", "producer"), "attacker", "producer"),
+        (("source", "subject"), "evil.subject", "subject"),
+        (("source", "schema_ref"), "bloodbank.v1.lifecycle.snapshot.updated.v2", "schema_ref"),
+        (("source", "correlation_id"), None, "correlation_id"),
+        (("source", "actor", "agent_id"), "attacker", "actor"),
+        (("provenance", "authority"), "attacker", "provenance"),
+        (("provenance", "authority_instance"), "other-instance", "instance"),
+    ],
+)
+def test_untrusted_projection_metadata_cannot_authorize_commands(path, value, match):
+    snapshot = projection(obligations=[])
+    target = snapshot
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    with pytest.raises(client.LifecycleClientError, match=match):
+        build_intent(snapshot)
+
+
+def test_missing_projection_trust_metadata_cannot_authorize_obligation_work():
+    snapshot = projection()
+    del snapshot["provenance"]
+    with pytest.raises(client.LifecycleClientError, match="provenance"):
+        client.build_obligation_invocation(snapshot, actor=ACTOR)
+
+    snapshot = projection()
+    del snapshot["source"]["causation_id"]
+    with pytest.raises(client.LifecycleClientError, match="causation_id"):
+        client.build_obligation_invocation(snapshot, actor=ACTOR)
 
 
 def test_stale_illegal_wrong_frontier_and_missing_capability_version_fail_closed():
@@ -398,6 +466,8 @@ def projection(*, obligations=None):
         obligations = [
             {
                 "id": "independent-review",
+                "obligation_instance_id": OBLIGATION_INSTANCE_ID,
+                "activated_at": "2026-07-18T11:55:00Z",
                 "kind": "independent_review",
                 "status": "pending",
                 "description": "Obtain independent review.",
@@ -440,7 +510,31 @@ def projection(*, obligations=None):
             "event_id": SNAPSHOT_EVENT_ID,
             "event_type": "bloodbank.v1.lifecycle.snapshot.updated",
             "event_time": NOW,
+            "subject": "bloodbank.evt.v1.lifecycle.snapshot.updated",
+            "authority_source": "urn:33god:service:lifecycle",
+            "producer": "delorenj/lifecycle",
+            "service": "lifecycle",
+            "kind": "event",
+            "domain": "lifecycle",
+            "schema_ref": "bloodbank.v1.lifecycle.snapshot.updated.v3",
+            "data_schema": (
+                "apicurio://holyfields/bloodbank.v1.lifecycle.snapshot.updated/versions/3"
+            ),
+            "actor": {
+                "type": "service",
+                "agent_id": "delorenj.lifecycle",
+                "instance": "test-authority",
+            },
+            "correlation_id": SNAPSHOT_CORRELATION_ID,
+            "causation_id": SNAPSHOT_CAUSATION_ID,
             "ordering_key": f"lifecycle:{LIFECYCLE_ID}",
+        },
+        "provenance": {
+            "authority": "delorenj/lifecycle",
+            "authority_instance": "test-authority",
+            "reconciliation_id": str(uuid.uuid4()),
+            "policy_version": "1.0.0",
+            "source_observation_ids": [],
         },
     }
 

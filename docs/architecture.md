@@ -49,7 +49,9 @@ maximizing reuse rather than rebuilding.
 1. **Modular, pluggable, extensible** — never tied to a specific agentic platform or CLI.
 2. **Integrates with any CLI via a fan-out set of adapters** — one generic core, many carriers.
 3. **PM + EM hybrid** — owns process policy, prioritization, delegation, and
-   review; Lifecycle owns the state machine and provider projections.
+   review. Lifecycle alone owns deterministic lifecycle truth and every
+   lifecycle state write. Plane/Trello own their ticket and board records;
+   those provider views are never Lifecycle projections or authority.
 4. **Deep domain understanding** — trusted to make unblocking decisions on the CEO's behalf.
 
 ## 3. Current Reality vs. Target
@@ -216,8 +218,10 @@ sensitive is committed (`.env` is gitignored; `.env.op` holds only references).
 
 Momo and the **Hermes PM** are two clients of the same Lifecycle authority:
 
-- **Same** Lifecycle snapshot/command contract, provider projection, and
-  Hindsight bank per project — so they must not double-dispatch.
+- **Same** Lifecycle snapshot/command contract, ticket/board provider view, and
+  Hindsight bank per project — so they must not double-dispatch actor work.
+  This coordination never makes either client a reconciler: Lifecycle alone
+  calculates and writes lifecycle truth.
   WIP=1 needs a **real shared lock** (not politeness): the Hermes sentinel fires on a ~60s
   timer, so an advisory "read state, then act" has a TOCTOU race. This coexistence lock is on
   the **MVP** critical path (E2/S2.3) the instant Momo installs onto a Hermes-run repo — it is

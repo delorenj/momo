@@ -78,10 +78,11 @@ Suggested next BMAD steps once you're ready to build: product brief → PRD → 
 ## Ticket Board
 
 - Identity in `.project.json`: provider `plane`, workspace `33god`, identifier `MOMO`,
-  `board_id` empty, `state: planned`, reconcile automation disabled.
-- Momo resolves project/provider projection identity from this file. Target
-  state-changing intent goes through Lifecycle; the current `tp` adapter is a
-  legacy/projection path rather than lifecycle authority.
+  `board_id` empty, `state: planned`; Hermes actor-work polling is disabled
+  (the historical configuration key is named `reconcile`, not Lifecycle truth).
+- Momo resolves project and ticket-provider identity from this file. Lifecycle
+  state-changing intent goes through Bloodbank to Lifecycle; the current `tp`
+  adapter exposes provider-owned ticket/board records, never lifecycle truth.
 
 ## Code Intelligence (codegraph)
 

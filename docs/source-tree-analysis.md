@@ -146,7 +146,8 @@ with canonical Bloodbank commands. The broader intended surface (agent adapters
 
 - **`mise.toml`**: env, enter-hooks, and tasks (versioning, agent-file linking, hindsight).
 - **`.project.json`**: pjangler identity — ticket provider `plane`, workspace `33god`,
-  identifier `MOMO`, `board_id` empty, `state: planned`, reconcile automation disabled.
+  identifier `MOMO`, `board_id` empty, `state: planned`; Hermes actor-work polling is
+  disabled under its historical `reconcile` key and does not reconcile Lifecycle truth.
 - **`.env.op`**: 1Password secret references (`op://DeLoSecrets/...`), inject-materialized.
 - **`.copier-answers.yml`**: copier template provenance (never edit manually).
 - **`.mise/version-files.conf`**: version sources — `gittag .` (git tags are the version).

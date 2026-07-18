@@ -36,7 +36,7 @@ direct provider transitions are migration-only utilities, not a state-write
 contract.
 
 > Momo is the **interactive policy client** alongside the **autonomous Hermes PM**. Both
-> share the same authoritative Lifecycle client contract, provider projection,
+> share the same authoritative Lifecycle client contract, Candystore read projection,
 > and per-project Hindsight memory bank. The end state: what Hermes selects and
 > submits autonomously on a heartbeat, Momo can also do manually — and be installed
 > into *any* agent CLI (Claude, Gemini, Codex, OpenCode, Kimi) via fan-out adapters.
@@ -52,8 +52,9 @@ contract.
   policy glue, with the direct state seam corrected, and **TypeScript/Node** for the component wrapper (CLI +
   fanout + any future MCP), matching the toad/pjangler house norm.
 - **Architecture Pattern:** *Intended* — client/facade over Lifecycle
-  snapshots/commands, Adapter for agent CLIs and provider projections, Strategy
-  for projection selection, plus a scheduled policy loop. See
+  snapshots/commands, Adapter for agent CLIs and ticket/board providers,
+  Strategy for provider selection, plus a scheduled actor-work policy loop.
+  Lifecycle remains the only lifecycle reconciler and state writer. See
   [architecture.md](./architecture.md).
 
 ## What Momo Is (four facets)
@@ -72,8 +73,9 @@ From [BRAINDUMP.md](../BRAINDUMP.md), Momo is simultaneously:
 
 - **Process ownership** — survey authoritative work, apply business policy,
   triage/refine, choose from the legal frontier, and submit intent/evidence.
-- **Lifecycle client** — preserve lifecycle ID, spec/state versions, frontier,
-  obligations, blockers, grants, and command outcomes; never write truth locally.
+- **Lifecycle client** — preserve lifecycle ID, spec/state versions, source-event
+  causal lineage, frontier, obligation occurrence identity, blockers, grants,
+  and command outcomes; never write truth locally.
 - **Delegation, not authorship** — orchestrates implementation by dispatching every code
   change to subagents; Momo itself stays out of the editor.
 - **Decision function** — ranks candidate actions by walking [The Pillars](../PILLARS.md)

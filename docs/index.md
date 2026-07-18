@@ -28,7 +28,7 @@ migration utilities and are not invoked by the authoritative workflow.
 
 - **Repository Type:** Monolith (single `pjangler` CommonProject repo)
 - **Entry Point:** `skill/scripts/lifecycle_client.py` and `mise.toml`
-- **Architecture Pattern:** Lifecycle client/facade + Adapter (per CLI/provider projection) + Strategy/Factory + scheduled policy loop
+- **Architecture Pattern:** Lifecycle client/facade + Adapter (per CLI/ticket-board provider) + Strategy/Factory + scheduled actor-work policy loop
 - **Ticket Board:** Plane, workspace `33god`, identifier `MOMO` (`state: planned`)
 - **Memory:** Hindsight, one bank per project (`momo` bank)
 - **Events:** Bloodbank (NATS/dapr) — decision provenance tagged against The Pillars
