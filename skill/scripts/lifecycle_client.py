@@ -169,6 +169,7 @@ def build_obligation_invocation(
         "repo": repo,
         "state_version": state_version,
         "authority_snapshot_event_id": source_event_id,
+        "authority_snapshot_event_time": source_event_time,
         "authority_snapshot_correlation_id": source["correlation_id"],
         "actor": actor,
         "obligation": obligation,
@@ -204,19 +205,14 @@ def build_obligation_invocation(
             "target_agent_id": target_agent_id,
             "thread_id": None,
             "turn_id": None,
-            "prompt": (
-                f"Complete Lifecycle obligation {obligation['id']}: "
-                f"{obligation.get('description', '')}. Invoke canonical skill "
-                f"{skill_ref['name']} at selector {skill_ref['selector']}. "
-                "Return concrete completion artifact evidence; this invocation "
-                "does not itself satisfy the obligation."
-            ),
+            "prompt": _obligation_prompt(obligation, skill_ref),
             "context": {
                 "contract_version": 1,
                 "lifecycle_id": lifecycle_id,
                 "repo": repo,
                 "expected_state_version": state_version,
                 "authority_snapshot_event_id": source_event_id,
+                "authority_snapshot_event_time": source_event_time,
                 "authority_snapshot_correlation_id": source["correlation_id"],
                 "obligation": obligation,
                 "skill_ref": skill_ref,
@@ -245,11 +241,157 @@ def build_obligation_invocation(
             "target_actor_id": target_agent_id,
             "skill_ref": skill_ref,
             "authority_snapshot_event_id": source_event_id,
+            "authority_snapshot_event_time": source_event_time,
             "authority_snapshot_correlation_id": source["correlation_id"],
         },
         "decision_rationale": rationale or {},
         "invocation_command": command,
     }
+
+
+def _verify_obligation_invocation_plan(
+    invocation_plan: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Recompute every material invocation byte before accepting completion."""
+
+    if set(invocation_plan) != {"selection", "decision_rationale", "invocation_command"}:
+        raise LifecycleClientError("invocation plan contains noncanonical fields")
+    _object(invocation_plan.get("decision_rationale"), "decision_rationale")
+    selection = _object(invocation_plan.get("selection"), "selection")
+    if selection.get("kind") != "obligation":
+        raise LifecycleClientError("completion requires an obligation invocation plan")
+    command = _object(invocation_plan.get("invocation_command"), "invocation_command")
+    validate_bloodbank_envelope(command)
+    data = _object(command.get("data"), "invocation data")
+    context = _object(data.get("context"), "context")
+    contract = _object(context.get("completion_evidence_contract"), "completion contract")
+    actor = _actor(command.get("actor"))
+    lifecycle_id = _required_text(context, "lifecycle_id")
+    repo = _required_text(context, "repo")
+    state_version = context.get("expected_state_version")
+    if isinstance(state_version, bool) or not isinstance(state_version, int) or state_version < 1:
+        raise LifecycleClientError("invocation expected_state_version must be an integer >= 1")
+    source_event_id = _uuid(
+        context.get("authority_snapshot_event_id"),
+        "authority snapshot event id",
+    )
+    source_event_time = _timestamp(
+        context.get("authority_snapshot_event_time"),
+        "authority snapshot event time",
+    )
+    source_correlation_id = _uuid(
+        context.get("authority_snapshot_correlation_id"),
+        "authority snapshot correlation id",
+    )
+    obligation = _object(context.get("obligation"), "obligation")
+    obligation_id = _required_text(obligation, "id")
+    obligation_instance_id = _uuid(
+        obligation.get("obligation_instance_id"),
+        "obligation_instance_id",
+    )
+    activated_at = _timestamp(obligation.get("activated_at"), "activated_at")
+    obligation_kind = _required_text(obligation, "kind")
+    target_agent_id = _required_text(obligation, "owner_id")
+    skill_ref = resolve_skill_ref(obligation)
+    if _skill_ref_value(context.get("skill_ref")) != skill_ref:
+        raise LifecycleClientError("invocation skill_ref does not match the obligation")
+    parameters = _object(context.get("parameters"), "parameters")
+
+    semantics = {
+        "contract": "momo.lifecycle.obligation_invocation.v1",
+        "lifecycle_id": lifecycle_id,
+        "repo": repo,
+        "state_version": state_version,
+        "authority_snapshot_event_id": source_event_id,
+        "authority_snapshot_event_time": source_event_time,
+        "authority_snapshot_correlation_id": source_correlation_id,
+        "actor": actor,
+        "obligation": obligation,
+        "target_agent_id": target_agent_id,
+        "skill_ref": skill_ref,
+        "parameters": parameters,
+    }
+    identity = _semantic_digest(semantics)
+    event_id = _semantic_uuid("invocation-event", identity)
+    expected_contract = {
+        "type": EVIDENCE_TYPE,
+        "subject": EVIDENCE_SUBJECT,
+        "obligation_id": obligation_id,
+        "obligation_instance_id": obligation_instance_id,
+        "activated_at": activated_at,
+        "obligation_kind": obligation_kind,
+        "target_actor_id": target_agent_id,
+        "invocation_id": event_id,
+    }
+    expected_context = {
+        "contract_version": 1,
+        "lifecycle_id": lifecycle_id,
+        "repo": repo,
+        "expected_state_version": state_version,
+        "authority_snapshot_event_id": source_event_id,
+        "authority_snapshot_event_time": source_event_time,
+        "authority_snapshot_correlation_id": source_correlation_id,
+        "obligation": obligation,
+        "skill_ref": skill_ref,
+        "parameters": parameters,
+        "completion_evidence_contract": expected_contract,
+    }
+    expected_selection = {
+        "kind": "obligation",
+        "lifecycle_id": lifecycle_id,
+        "state_version": state_version,
+        "obligation_id": obligation_id,
+        "obligation_instance_id": obligation_instance_id,
+        "activated_at": activated_at,
+        "target_actor_id": target_agent_id,
+        "skill_ref": skill_ref,
+        "authority_snapshot_event_id": source_event_id,
+        "authority_snapshot_event_time": source_event_time,
+        "authority_snapshot_correlation_id": source_correlation_id,
+    }
+    expected_command = {
+        "specversion": "1.0",
+        "id": event_id,
+        "source": f"urn:33god:agent:{actor['agent_id']}",
+        "type": INVOCATION_TYPE,
+        "subject": INVOCATION_SUBJECT,
+        "time": source_event_time,
+        "datacontenttype": "application/json",
+        "dataschema": "apicurio://holyfields/bloodbank.v1.agent.invocation.start/versions/1",
+        "correlationid": source_correlation_id,
+        "causationid": source_event_id,
+        "producer": "momo",
+        "service": "momo",
+        "domain": "agent",
+        "schemaref": "bloodbank.v1.agent.invocation.start.v1",
+        "kind": "command",
+        "actor": actor,
+        "command_id": _semantic_uuid("invocation-command", identity),
+        "idempotency_key": f"agent.invocation.start:semantic:{identity}",
+        "delivery": "single_consumer",
+        "data": {
+            "target_agent_id": target_agent_id,
+            "thread_id": None,
+            "turn_id": None,
+            "prompt": _obligation_prompt(obligation, skill_ref),
+            "context": expected_context,
+        },
+    }
+    if selection != expected_selection:
+        raise LifecycleClientError("invocation selection does not match complete semantic identity")
+    if contract != expected_contract or context != expected_context or command != expected_command:
+        raise LifecycleClientError("invocation command does not match complete semantic identity")
+    return selection, command, context, contract
+
+
+def _obligation_prompt(obligation: dict[str, Any], skill_ref: dict[str, str]) -> str:
+    return (
+        f"Complete Lifecycle obligation {obligation['id']}: "
+        f"{obligation.get('description', '')}. Invoke canonical skill "
+        f"{skill_ref['name']} at selector {skill_ref['selector']}. "
+        "Return concrete completion artifact evidence; this invocation "
+        "does not itself satisfy the obligation."
+    )
 
 
 def build_obligation_completion_evidence(
@@ -260,29 +402,14 @@ def build_obligation_completion_evidence(
 ) -> dict[str, Any]:
     """Build canonical completed-skill evidence for Lifecycle to evaluate."""
 
-    selection = _object(invocation_plan.get("selection"), "selection")
-    if selection.get("kind") != "obligation":
-        raise LifecycleClientError("completion requires an obligation invocation plan")
-    command = _object(invocation_plan.get("invocation_command"), "invocation_command")
-    validate_bloodbank_envelope(command)
-    if command.get("type") != INVOCATION_TYPE or command.get("subject") != INVOCATION_SUBJECT:
-        raise LifecycleClientError("completion invocation command identity is not canonical")
-    context = _object(_object(command.get("data"), "invocation data").get("context"), "context")
-    contract = _object(context.get("completion_evidence_contract"), "completion contract")
-    checks = {
-        "obligation_id": selection.get("obligation_id"),
-        "obligation_instance_id": selection.get("obligation_instance_id"),
-        "activated_at": selection.get("activated_at"),
-        "target_actor_id": selection.get("target_actor_id"),
-        "invocation_id": command.get("id"),
-    }
-    for key, expected in checks.items():
-        if contract.get(key) != expected:
-            raise LifecycleClientError(f"completion contract {key} does not match invocation")
+    selection, command, context, contract = _verify_obligation_invocation_plan(invocation_plan)
     completed_at = _timestamp(completed_at, "completed_at")
     activated_at = _timestamp(contract.get("activated_at"), "obligation activated_at")
     if _timestamp_value(completed_at) < _timestamp_value(activated_at):
         raise LifecycleClientError("completion cannot predate the active obligation occurrence")
+    invocation_time = _timestamp(command.get("time"), "invocation command time")
+    if _timestamp_value(completed_at) < _timestamp_value(invocation_time):
+        raise LifecycleClientError("completion cannot predate the canonical invocation command")
     evidence = _completion_evidence(evidence)
     # The invocation actor identifies who requested the work. Completion evidence
     # is a distinct Momo-produced authority input and therefore carries the
@@ -378,6 +505,7 @@ def build_lifecycle_intent(
         "repo": repo,
         "expected_state_version": state_version,
         "authority_snapshot_event_id": source_event_id,
+        "authority_snapshot_event_time": source_event_time,
         "authority_snapshot_correlation_id": source["correlation_id"],
         "selected_frontier": frontier,
         "actor": actor,
@@ -433,6 +561,8 @@ def build_lifecycle_intent(
             "state_version": state_version,
             "frontier": frontier,
             "authority_snapshot_event_id": source_event_id,
+            "authority_snapshot_event_time": source_event_time,
+            "authority_snapshot_correlation_id": source["correlation_id"],
         },
         "decision_rationale": rationale or {},
         "lifecycle_command": command,
@@ -496,16 +626,23 @@ def verify_command_verdict(command: dict[str, Any], reply: dict[str, Any]) -> di
     resulting = data.get("resulting_state_version")
     applied_event_id = data.get("applied_event_id")
     _required_text(data, "reason_code")
+    expected_version = command_data.get("expected_state_version")
+    if observed != expected_version:
+        raise LifecycleClientError(
+            "Lifecycle reply observed_state_version must equal the command expected_state_version"
+        )
     if verdict == "applied":
-        if mutated is not True or not isinstance(resulting, int) or resulting <= observed:
+        if mutated is not True or resulting != observed + 1:
             raise LifecycleClientError("Lifecycle applied verdict has inconsistent mutation fields")
         _uuid(applied_event_id, "applied_event_id")
     elif verdict == "idempotent":
-        if mutated is not False or not isinstance(resulting, int) or resulting < observed:
+        if mutated is not False or resulting != observed + 1:
             raise LifecycleClientError(
                 "Lifecycle idempotent verdict has inconsistent mutation fields"
             )
         _uuid(applied_event_id, "applied_event_id")
+        if data.get("reason_code") != "EFFECT_ALREADY_APPLIED":
+            raise LifecycleClientError("Lifecycle idempotent verdict reason is inconsistent")
     else:
         raise LifecycleClientError(f"Lifecycle command was not applied: {verdict}")
     return data

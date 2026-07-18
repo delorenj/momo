@@ -119,6 +119,13 @@ def test_invocation_semantic_identity_is_exact_and_retry_stable():
             changed_occurrence, actor=ACTOR, parameters={"review_depth": "adversarial"}
         )["invocation_command"]
     )
+    changed_source_time = projection()
+    changed_source_time["source"]["event_time"] = "2026-07-18T12:00:01Z"
+    variants.append(
+        client.build_obligation_invocation(
+            changed_source_time, actor=ACTOR, parameters={"review_depth": "adversarial"}
+        )["invocation_command"]
+    )
     for variant in variants:
         assert all(variant[field] != first[field] for field in identity_fields)
         assert variant["correlationid"] == SNAPSHOT_CORRELATION_ID
@@ -179,9 +186,14 @@ def test_completion_is_distinct_schema_exact_evidence_and_retry_stable():
             invocation, completed_at="2026-07-18T11:54:59Z", evidence=EVIDENCE
         )
 
+    with pytest.raises(client.LifecycleClientError, match="invocation command"):
+        client.build_obligation_completion_evidence(
+            invocation, completed_at="2026-07-18T11:56:00Z", evidence=EVIDENCE
+        )
+
     prior_occurrence = copy.deepcopy(invocation)
     prior_occurrence["selection"]["obligation_instance_id"] = str(uuid.uuid4())
-    with pytest.raises(client.LifecycleClientError, match="obligation_instance_id"):
+    with pytest.raises(client.LifecycleClientError, match="selection.*semantic identity"):
         client.build_obligation_completion_evidence(
             prior_occurrence, completed_at="2026-07-18T12:30:00Z", evidence=EVIDENCE
         )
@@ -202,6 +214,95 @@ def test_invocation_or_claims_cannot_stand_in_for_completion(evidence, match):
             invocation,
             completed_at="2026-07-18T12:30:00Z",
             evidence=evidence,
+        )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "name"),
+    [
+        (
+            lambda plan: plan["selection"].__setitem__("target_actor_id", "agent:alternate"),
+            "selection",
+        ),
+        (
+            lambda plan: plan["invocation_command"]["data"].__setitem__(
+                "target_agent_id", "agent:alternate"
+            ),
+            "target",
+        ),
+        (
+            lambda plan: plan["invocation_command"]["actor"].__setitem__(
+                "agent_id", "alternate-momo"
+            ),
+            "actor",
+        ),
+        (
+            lambda plan: plan["invocation_command"]["data"]["context"]["obligation"].__setitem__(
+                "id", "alternate-review"
+            ),
+            "obligation",
+        ),
+        (
+            lambda plan: plan["invocation_command"]["data"]["context"]["obligation"].__setitem__(
+                "obligation_instance_id", str(uuid.uuid4())
+            ),
+            "occurrence",
+        ),
+        (
+            lambda plan: plan["invocation_command"]["data"]["context"].__setitem__(
+                "authority_snapshot_event_id", str(uuid.uuid4())
+            ),
+            "source event",
+        ),
+        (
+            lambda plan: plan["invocation_command"]["data"]["context"].__setitem__(
+                "authority_snapshot_event_time", "2026-07-18T12:00:01Z"
+            ),
+            "source time",
+        ),
+        (
+            lambda plan: plan["invocation_command"].__setitem__("correlationid", str(uuid.uuid4())),
+            "correlation",
+        ),
+        (
+            lambda plan: plan["invocation_command"]["data"]["context"]["skill_ref"].__setitem__(
+                "selector", "7.0.0"
+            ),
+            "skill",
+        ),
+        (
+            lambda plan: plan["invocation_command"]["data"]["context"]["parameters"].__setitem__(
+                "depth", "altered"
+            ),
+            "parameters",
+        ),
+        (
+            lambda plan: plan["invocation_command"]["data"].__setitem__(
+                "prompt", "execute altered work"
+            ),
+            "prompt",
+        ),
+        (
+            lambda plan: plan["invocation_command"]["data"]["context"][
+                "completion_evidence_contract"
+            ].__setitem__("target_actor_id", "agent:alternate"),
+            "completion contract",
+        ),
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_completion_recomputes_full_immutable_invocation_plan(mutation, name):
+    invocation = client.build_obligation_invocation(
+        projection(), actor=ACTOR, parameters={"depth": "adversarial"}
+    )
+    tampered = copy.deepcopy(invocation)
+    mutation(tampered)
+
+    with pytest.raises(client.LifecycleClientError, match="invocation|semantic|skill_ref"):
+        client.build_obligation_completion_evidence(
+            tampered,
+            completed_at="2026-07-18T12:30:00Z",
+            evidence=EVIDENCE,
         )
 
 
@@ -256,8 +357,20 @@ def test_lifecycle_semantic_identity_covers_every_material_request_field():
         parameters={"mode": "strict"},
         evidence={"artifact_id": "review:1", "result": "pass"},
     )["lifecycle_command"]
+    changed_source_time_projection = projection(obligations=[])
+    changed_source_time_projection["source"]["event_time"] = "2026-07-18T12:00:01Z"
+    changed_source_time = build_intent(
+        changed_source_time_projection,
+        parameters={"mode": "strict"},
+        evidence={"artifact_id": "review:1", "result": "pass"},
+    )["lifecycle_command"]
     identity_fields = ("id", "command_id", "idempotency_key")
-    for variant in (changed_evidence, changed_parameters, changed_capability):
+    for variant in (
+        changed_evidence,
+        changed_parameters,
+        changed_capability,
+        changed_source_time,
+    ):
         assert all(variant[field] != first[field] for field in identity_fields)
         assert variant["correlationid"] == SNAPSHOT_CORRELATION_ID
         assert variant["causationid"] == SNAPSHOT_EVENT_ID
@@ -340,6 +453,33 @@ def test_verdict_accepts_only_complete_matching_authority_reply():
     idempotent = authoritative_reply(command, verdict="idempotent")
     validate_with_bloodbank(idempotent)
     assert client.verify_command_verdict(command, idempotent)["verdict"] == "idempotent"
+
+
+@pytest.mark.parametrize(
+    ("verdict", "mutation"),
+    [
+        ("applied", lambda data: data.__setitem__("observed_state_version", 8)),
+        ("applied", lambda data: data.__setitem__("resulting_state_version", 7)),
+        ("applied", lambda data: data.__setitem__("resulting_state_version", 9)),
+        ("applied", lambda data: data.__setitem__("mutated", False)),
+        ("applied", lambda data: data.__setitem__("applied_event_id", None)),
+        ("idempotent", lambda data: data.__setitem__("observed_state_version", 8)),
+        ("idempotent", lambda data: data.__setitem__("resulting_state_version", 9)),
+        ("idempotent", lambda data: data.__setitem__("mutated", True)),
+        ("idempotent", lambda data: data.__setitem__("applied_event_id", None)),
+        ("idempotent", lambda data: data.__setitem__("reason_code", "TRANSITION_APPLIED")),
+    ],
+)
+def test_forged_authority_reply_version_and_mutation_relations_are_rejected(
+    verdict,
+    mutation,
+):
+    command = build_intent(projection(obligations=[]))["lifecycle_command"]
+    reply = authoritative_reply(command, verdict=verdict)
+    mutation(reply["data"])
+
+    with pytest.raises(client.LifecycleClientError):
+        client.verify_command_verdict(command, reply)
 
 
 @pytest.mark.parametrize(
@@ -581,7 +721,13 @@ def authoritative_reply(command, *, verdict):
             ),
             "applied_event_id": str(uuid.uuid4()) if accepted else None,
             "capability_id": command_data["capability"]["capability_id"],
-            "reason_code": "TRANSITION_APPLIED" if accepted else "EXPECTED_STATE_VERSION_MISMATCH",
+            "reason_code": (
+                "EFFECT_ALREADY_APPLIED"
+                if idempotent
+                else "TRANSITION_APPLIED"
+                if applied
+                else "EXPECTED_STATE_VERSION_MISMATCH"
+            ),
             "responded_at": NOW,
         },
     }
