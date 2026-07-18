@@ -35,7 +35,7 @@ Momo reads Candystore's projection and publishes canonical Bloodbank commands;
 direct provider transitions are migration-only utilities, not a state-write
 contract.
 
-> Momo is the **interactive / human-drivable twin** of the **autonomous Hermes PM**. Both
+> Momo is the **interactive policy client** alongside the **autonomous Hermes PM**. Both
 > share the same authoritative Lifecycle client contract, provider projection,
 > and per-project Hindsight memory bank. The end state: what Hermes selects and
 > submits autonomously on a heartbeat, Momo can also do manually — and be installed

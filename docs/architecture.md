@@ -155,11 +155,11 @@ The 4 pillars above are the **product** tier (`PILLARS.md`, per-repo `.momo/pill
 as-built skill *also* carries a **process** tier in `references/pillars.md` — universal
 operating slugs Momo cites as decision `basis[]`: `keep-the-pipeline-unblocked`,
 `delegate-every-code-change`, `evidence-over-status`, `independent-adversarial-review`,
-`everything-is-an-event`, `bias-to-reversible-action`, `respect-the-contracts`,
-`one-source-of-truth`, `smallest-safe-increment`. (E.g. the `board_id` self-heal records
+`everything-is-an-event`, `bias-to-forward-action`, `respect-the-contracts`,
+`one-source-of-truth`, `smallest-reviewable-increment`. (E.g. the `board_id` self-heal records
 basis = `one-source-of-truth` + `respect-the-contracts` — process slugs, not product ones.)
 
-**Safety-supremacy invariant:** the process/safety pillars (no-code-mutation,
+**Ownership/evidence invariant:** the process pillars (no-code-mutation,
 reviewer-independence, evidence, respect-the-contracts) are **never** overridden by a product
 pillar — Chase-the-Check can reorder *what* Momo does, never *whether* it delegates code or
 reviews independently. Any `basis[]` validator must accept **both** tiers.
@@ -212,7 +212,7 @@ never hard-codes a provider or derives legal state from a lane.
 Secrets flow through **1Password** (`op inject -i .env.op > .env` on `mise enter`). Nothing
 sensitive is committed (`.env` is gitignored; `.env.op` holds only references).
 
-## 8. Relationship to Hermes (the autonomous twin)
+## 8. Relationship to Hermes (the autonomous policy client)
 
 Momo and the **Hermes PM** are two clients of the same Lifecycle authority:
 
