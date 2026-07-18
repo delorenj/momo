@@ -1,7 +1,7 @@
 # Momo - Project Overview
 
 **Date:** 2026-07-18
-**Type:** Agentic PM/EM component (pre-implementation) within the 33GOD platform
+**Type:** Agentic PM/EM component with an implemented Lifecycle client slice
 **Architecture:** Modular, adapter-based, provider-agnostic (intended)
 
 ## Executive Summary
@@ -18,23 +18,22 @@ frontier, obligations, and capability validation. Bloodbank owns contracts and
 transport; Candystore owns durable history/read models; PJangler owns
 project/bootstrap identity; Holocene renders and submits high-level commands.
 
-This repository is **not yet an implementation** — it is the **promotion target** for an
-existing, proven skill. Momo currently lives as a **fully-working skill** at
-`~/code/33GOD/skills/momo` (SKILL.md + references + templates + Python/Bash scripts); this
-repo is where that skill is being promoted into a formal, reusable 33GOD **component**
+This repository contains the implemented Lifecycle policy-client seam inside
+the proven `skill/` package. That skill is being promoted into a formal,
+reusable 33GOD **component**
 (packaged skill + generic agent definition + fanout adapters; MCP proxy + heartbeat are
 **deferred** per the Rule of Three). As of this scan, the repo contains the **vision**
 ([BRAINDUMP.md](../BRAINDUMP.md)), the **doctrine** ([PILLARS.md](../PILLARS.md)), a
 **pjangler CommonProject scaffold**, and the **planning artifacts**
 ([brief](../_bmad-output/planning-artifacts/product-brief.md) ·
 [PRD](../_bmad-output/planning-artifacts/PRD.md) ·
-[epics](../_bmad-output/planning-artifacts/epics.md)) — no product source code has been
-written here yet.
+[epics](../_bmad-output/planning-artifacts/epics.md)). Broader packaging and
+fanout remain future work.
 
-The standalone Lifecycle service is also not implemented. Its tested embryo is
-currently under Bloodbank and must be extracted with history preservation. The
-working Momo skill's direct provider transitions are legacy current behavior,
-not the target state-write contract.
+The standalone Lifecycle authority and Bloodbank contracts are implemented.
+Momo reads Candystore's projection and publishes canonical Bloodbank commands;
+direct provider transitions are migration-only utilities, not a state-write
+contract.
 
 > Momo is the **interactive / human-drivable twin** of the **autonomous Hermes PM**. Both
 > share the same authoritative Lifecycle client contract, provider projection,
@@ -127,10 +126,10 @@ mise tasks                      # list available tasks
 ### Key Commands
 
 - **Install:** `mise install`
-- **Dev:** *(no product code yet — nothing to run)*
+- **Dev:** `python3 skill/scripts/lifecycle_client.py --help`
 - **Build:** *(none yet)*
 - **Version:** `mise run version` · `mise run version:bump[-minor|-major]` · `mise run version:check`
-- **Test:** *(none yet)*
+- **Test:** `mise run lint && mise run test`
 
 ## Repository Structure
 
@@ -151,10 +150,10 @@ For detailed information, see:
 - [../BRAINDUMP.md](../BRAINDUMP.md) — Source vision (product definition)
 - [../PILLARS.md](../PILLARS.md) — The decision function (operating doctrine)
 
-Target implementation order is defined by the v3 epics: Lifecycle extraction and
-contracts first, then Momo client conformance, then the revenue-product demo.
+The Lifecycle prerequisite and Momo client conformance slice are implemented.
+The v3 epics still govern future packaging, WIP-lock, autonomy, and demo work.
 
 ---
 
-_Generated using BMAD Method `document-project` workflow; reconciled by Correct
-Course on 2026-07-18. No lifecycle vertical slice is implemented._
+_Generated using BMAD Method `document-project`, reconciled by Correct Course,
+and updated on 2026-07-18 for the implemented Lifecycle client slice._

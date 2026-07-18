@@ -100,16 +100,17 @@ Copilot. **They are not part of Momo's implementation.**
 
 ## Integration Points
 
-None yet — there is no product code to integrate. The *intended* integration surface
-(MCP proxy ↔ Plane/Trello servers, agent adapters ↔ CLIs, heartbeat ↔ systemd, events ↔
-Bloodbank, memory ↔ Hindsight) is described in [architecture.md](./architecture.md).
+`skill/scripts/lifecycle_client.py` now integrates Candystore read projections
+with canonical Bloodbank commands. The broader intended surface (agent adapters
+↔ CLIs, heartbeat ↔ systemd, memory ↔ Hindsight) is described in
+[architecture.md](./architecture.md).
 
 ## Entry Points
 
 - **Main Entry:** `mise.toml` — the operational entry point. `mise enter` runs the enter
   hooks; `mise tasks` lists everything runnable.
-- **Product Entry:** *none yet.* When implementation begins, the MCP server bootstrap and
-  the generic agent spec will become the runtime entry points.
+- **Policy-client Entry:** `skill/scripts/lifecycle_client.py`; MCP and generic
+  agent packaging remain future entry points.
 
 ## File Organization Patterns
 

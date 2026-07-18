@@ -25,8 +25,8 @@ contain authoritative lifecycle state.
 
 Use the stable slug/binding to resolve Lifecycle, then fetch its authoritative
 snapshot: lifecycle ID, spec/state versions, legal frontier, obligations,
-blockers, and capability grants. The standalone client is not implemented yet;
-target state-changing work must stop and report that blocker until it exists.
+blockers, and capability grants. Use `scripts/lifecycle_client.py fetch` and
+follow `lifecycle-client.md` for the implemented fail-closed read/command path.
 
 ## Authoritative lifecycle and provider projection
 
@@ -126,7 +126,8 @@ beyond a binding repair still goes through a delegated worker.
 
 ## Evidence and projection surfaces
 
-- Authority: versioned Lifecycle snapshot/command result (not implemented yet)
+- Authority: versioned Lifecycle snapshot/command result via
+  `scripts/lifecycle_client.py` and Candystore's read-only projection API
 - Evidence: `_bmad-output/implementation-artifacts/issue-evidence/<ISSUE>.md`
 - Decision/event trail: `_bmad-output/implementation-artifacts/bloodbank-events.jsonl`
 - Live workers: `git status`, branches, `git worktree list`, recent commits, zellij sessions.

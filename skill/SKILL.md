@@ -1,6 +1,6 @@
 ---
 name: momo
-description: Momo — the manual, human-drivable PM/EM process-manager for a pjangler CommonProject repo. Use it to inspect authoritative work, apply business pillars to choose among Lifecycle's legal frontier, triage/refine, delegate every code change, independently review evidence, submit auditable intent, and record decision provenance. Momo never calculates or writes lifecycle truth. The standalone Lifecycle client is not implemented yet; direct tp/Trello transitions are legacy current behavior, not target authority. Do NOT use for hands-on coding, repos with no .project.json, lifecycle reconciliation, or Hermes fleet/systemd provisioning.
+description: Momo — the manual, human-drivable PM/EM process-manager for a pjangler CommonProject repo. Use it to inspect authoritative work, apply business pillars to choose among Lifecycle's legal frontier, triage/refine, delegate every code change, independently review evidence, submit auditable intent through the implemented Lifecycle client, and record decision provenance. Momo never calculates or writes lifecycle truth. Direct tp/Trello transitions are legacy migration utilities and are never part of the authoritative workflow. Do NOT use for hands-on coding, repos with no .project.json, lifecycle reconciliation, or Hermes fleet/systemd provisioning.
 ---
 
 # Momo — PM Orchestrator
@@ -46,11 +46,11 @@ anchored by **pillars** (your decision compass) and made auditable by emitting a
 1. **Confirm the ground.** Resolve the nearest ancestor `.project.json`. No `.project.json`
    → you are not in a CommonProject repo; say so and stop (Momo has no board here).
 2. **Load context in this order** (details in `references/board-awareness.md`):
-   - Resolve the Lifecycle binding from PJangler project identity, then fetch the
-     authoritative snapshot: lifecycle ID, spec/state versions, frontier,
-     obligations, blockers, and capability grants. If this target client is
-     unavailable, report the implementation blocker and do not perform a target
-     state change.
+   - Resolve the Lifecycle binding from PJangler project identity, then use
+     `scripts/lifecycle_client.py fetch` to read Candystore's authoritative
+     projection: lifecycle ID, spec/state versions, frontier, obligations,
+     blockers, and capability grants. A missing/stale projection is a visible
+     blocker and never authorizes work.
    - Recall the shared hindsight bank (`hindsight memory recall <slug> "<what you're about to do>"`), where `<slug>` = `.project.json` `project_slug`.
    - **Detect the provider** from `.project.json` `ticket_provider.type`. `plane`/`linear` use the repo's `tp` adapter; `trello` uses Momo's bundled adapter with per-repo lanes in `.momo/config.json`. For trello, if that config is absent or the board is non-standard (run `scripts/momo-config.py detect`), interactively map the odd lanes with the operator and persist them (`scripts/momo-config.py set …`) **before** running the loop. This is the one-time first-run setup; thereafter it's just data.
    - Read the provider board through the adapter only as a legacy/projection
@@ -71,7 +71,7 @@ anchored by **pillars** (your decision compass) and made auditable by emitting a
 | Orchestrate ONE ticket to done | `references/delegation.md`, `references/review-and-closure.md` | Run the per-ticket pipeline (below) |
 | "Clear the board" / run the loop | `references/board-clearing-loop.md` | Run the loop with its stop conditions + CI-wait timer |
 | Make a judgment call for the operator | `references/pillars.md`, `references/decisions.md` | Decide, then emit the decision event |
-| State-changing project intent | Lifecycle client contract | Submit versioned/idempotent intent; stop if the client is unavailable |
+| State-changing project intent | `references/lifecycle-client.md` | Submit versioned/idempotent intent through Bloodbank; stop on missing/stale projection or invalid grant |
 | Pick the right coding agent for a task | `coding-strategy` skill | Delegate accordingly |
 
 ## The per-ticket policy pipeline
@@ -134,4 +134,5 @@ does not authorize or enact a lifecycle transition.
 - `references/delegation.md` — delegating every code change: Task-tool workers, coding-strategy, WIP=1, spec + quality gates, reviewer independence, evidence capture.
 - `references/decisions.md` — the decision-event contract and the `record-decision.py` mechanism.
 - `references/review-and-closure.md` — close gate, autonomous adversarial review, accept/hold/rollback, evidence + report shapes.
+- `references/lifecycle-client.md` — implemented Candystore read, obligation-to-skill invocation, Lifecycle intent, Bloodbank publish, and verdict gates.
 - `templates/` — `pillars.md`, `issue-evidence.md`, `review-report.md` (match the gate validators exactly).

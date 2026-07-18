@@ -1,9 +1,9 @@
 # Momo - Architecture
 
 **Date:** 2026-07-18
-**Status:** Pre-implementation (promotion job). This document captures the **intended**
-architecture (distilled from [BRAINDUMP.md](../BRAINDUMP.md) + [PILLARS.md](../PILLARS.md) +
-the 33GOD ecosystem), the **current reality**, and the **gap**.
+**Status:** Lifecycle policy-client slice implemented; packaging, fanout,
+heartbeat, and MCP remain future work. This document separates current behavior
+from that future scope.
 
 > **Reality update (2026-07-16, post-research):** A 4-investigator grounding pass corrected
 > three earlier assumptions in this doc. (1) The working Momo is a **fully functional skill**
@@ -20,9 +20,9 @@ the 33GOD ecosystem), the **current reality**, and the **gap**.
 > process-manager, not the lifecycle state machine. The separate headless
 > Lifecycle component owns versioned spec/state, deterministic reconciliation,
 > legal frontier, obligations, and capability validation. The service is not
-> implemented; the tested Bloodbank lifecycle controller is its extraction
-> embryo. Direct `tp`/Trello transitions described as current behavior below are
-> legacy migration paths, not the target contract.
+> implemented with canonical Bloodbank contracts. Direct `tp`/Trello
+> transitions described below are legacy migration paths, not the current
+> authoritative contract.
 
 ---
 
@@ -57,9 +57,9 @@ maximizing reuse rather than rebuilding.
 | Dimension | Current (2026-07-18) | Target |
 |---|---|---|
 | Form | pjangler CommonProject scaffold + 2 docs | Formal 33GOD component |
-| Product code | **none** | **MVP target:** corrected Lifecycle-client skill SSOT + minimal `momo install`. **Deferred/gated:** generic spec + fanout (E4), heartbeat (E5), MCP proxy (E6) |
+| Product code | Tested `skill/scripts/lifecycle_client.py` client seam | **Future:** minimal `momo install`; **deferred/gated:** generic spec + fanout (E4), heartbeat (E5), MCP proxy (E6) |
 | Working impl | fully-working skill at `~/code/33GOD/skills/momo` | promoted & generalized into this repo |
-| Ticket/lifecycle | `.project.json` → provider board; current skill can write direct transitions | authoritative Lifecycle snapshot/frontier; provider board is a projection and Momo submits intent only |
+| Ticket/lifecycle | Candystore projection → legal frontier/obligations → canonical Bloodbank commands | Broader packaged client/fanout; provider board remains a projection only |
 | Runtime driver | none in this repo | manual or heartbeat Lifecycle client; no local reconciler |
 | Memory | (inherits current Hermes PM bank) | Hindsight, one bank per project |
 | Decisions | doctrine written (PILLARS.md) | doctrine *executed* + logged to Bloodbank |
@@ -73,11 +73,9 @@ Momo-the-component is six liftable parts. Status reflects this scan.
 The precise workflows that are Momo's job description: inspect authoritative
 work → apply business policy → orchestrate a ticket (delegating all code) →
 review → submit intent/evidence → record decisions. The policy/delegation loop is
-implemented and proven today at `~/code/33GOD/skills/momo`
-(SKILL.md + 6 references + 3 templates + `scripts/{momo-board.sh, record-decision.py,
-momo-config.py, providers/trello.py}`). The promotion preserves this behavior but
-must replace direct provider transitions with the Lifecycle client seam; the
-current scripts are not target-contract complete.
+implemented in this repo's `skill/` package (SKILL.md, references, templates,
+and scripts). `scripts/lifecycle_client.py` now supplies the current
+read/selection/command seam; provider transition helpers remain migration-only.
 
 ### 4.2 MCP server (provider proxy)  ·  status: ⛔ DEFERRED (Rule of Three — 2nd consumer)
 
@@ -259,11 +257,11 @@ skill; direct state writes are intentionally replaced. The real work
 is packaging & seams, sequenced by shortest-path-to-demo — full backlog in
 [epics.md](../_bmad-output/planning-artifacts/epics.md):
 
-1. **External dependency — Lifecycle:** extract the Bloodbank controller embryo
-   with history, close schemas/outbox, add spec/frontier/obligation/capability and
-   command seams, and pass migration/replay/rollback gates.
-2. **E0 — Client prerequisite:** resolve PJangler identity, Lifecycle
-   snapshot/commands/grant, and provider projection; repair bindings as metadata.
+1. **Implemented dependency — Lifecycle:** standalone authority, canonical
+   schemas/outbox, spec/frontier/obligation/capability and command seams.
+2. **Implemented E0 slice:** current Candystore projection reads, canonical
+   obligation skill resolution, and versioned Lifecycle commands through
+   Bloodbank. PJangler binding automation remains future packaging work.
 3. **E1 — Promote the policy skill:** preserve pillars, delegation, review, and
    decision provenance while removing direct state authority.
 4. **E2 — Install + target demo:** gate doctor on Lifecycle, submit versioned
@@ -272,12 +270,13 @@ is packaging & seams, sequenced by shortest-path-to-demo — full backlog in
 6. **E5:** Hermes adapter remains a policy client, never another reconciler.
 7. **E6:** thin MCP over Lifecycle reads/commands, not provider transition APIs.
 
-## 11. Testing Strategy (intended)
+## 11. Testing Strategy
 
-- No product tests exist yet. When implemented: contract-test the Momo client
-  against Lifecycle snapshot/command versions; prove stale-version, denied-grant,
-  duplicate-command, and unavailable-service behavior; golden-test provider read
-  projections; and verify Pillars only rank actions in the legal frontier.
+- Current tests contract-check the Momo client against Lifecycle projection and
+  command versions, reject stale/illegal/non-frontier work and invalid grants,
+  preserve canonical skill references, keep rationale outside commands, and
+  prove there is no direct mutation transport or local truth store. Future
+  packaging should add provider-projection golden tests and shared-lock tests.
 
 ## 12. Deployment (intended)
 
@@ -289,6 +288,5 @@ is packaging & seams, sequenced by shortest-path-to-demo — full backlog in
 
 ---
 
-_Generated using BMAD Method `document-project` workflow and reconciled through
-Correct Course on 2026-07-18. Momo product code and the standalone Lifecycle
-vertical slice are not implemented._
+_Generated using BMAD Method `document-project`, reconciled through Correct
+Course, and updated on 2026-07-18 for the implemented Lifecycle client slice._

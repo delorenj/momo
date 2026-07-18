@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-18
 **Author:** Momo (acting PM, on Jarad's behalf)
-**Status:** Approved boundary correction; implementation remains gated — **v3**
+**Status:** Lifecycle policy-client slice implemented; broader promotion remains gated — **v3**
 **Companion docs:** [product-brief.md](./product-brief.md) · [../../docs/architecture.md](../../docs/architecture.md) · [epics.md](./epics.md)
 
 ## 1. Overview
@@ -10,8 +10,8 @@
 Momo is 33GOD's in-project **PM+EM orchestrator**. This PRD specifies the **promotion** of the proven `momo` skill into a **liftable, versioned component** (`@delorenj/momo`) that installs into a drivable CommonProject repo, plus the seams that later let its behavior render into any agent CLI and run autonomously as the Hermes twin.
 
 **Design stance:** thin promotion, maximal reuse. The PM/EM policy, delegation,
-review, and decision-provenance behavior already exists. Its direct provider
-transitions are a **legacy current path**, not the target lifecycle contract.
+review, and decision-provenance behavior already exists. Direct provider
+transitions are **legacy migration utilities**, not the lifecycle contract.
 Momo becomes an intelligent client of the separate headless Lifecycle component.
 
 **Approved authority boundary (2026-07-18):** Lifecycle alone owns versioned
@@ -21,8 +21,9 @@ owns durable history/read models, PJangler owns project/bootstrap identity, and
 Holocene renders authoritative state and submits high-level commands. Momo reads
 Lifecycle's frontier, applies the Pillars to choose among legal work, delegates
 and reviews, and submits idempotent intent. It never calculates or writes
-lifecycle truth. The standalone Lifecycle repository/service is not implemented;
-the tested Bloodbank controller is the history-preserving extraction embryo.
+lifecycle truth. The standalone Lifecycle authority, canonical Bloodbank
+contracts, Candystore projection, and Momo client seam are implemented in the
+current integration slice.
 
 ## 2. Revenue Gate (Pillar #2 — answer before build)
 
@@ -53,8 +54,8 @@ the proven Claude skill; public npm release.
 - **FR-0.4** Submit observations, evidence, review verdicts, and decision
   provenance as inputs/events. A decision event audits reasoning; it does not
   authorize or enact a transition.
-- **FR-0.5** Until Lifecycle exists, target lifecycle execution is blocked. The
-  current `momo-board.sh`/`tp`/Trello transition path is explicitly legacy and
+- **FR-0.5** Missing or stale projections and invalid grants block execution.
+  `momo-board.sh`/`tp`/Trello transitions are explicitly migration-only and
   cannot satisfy target-state acceptance.
 
 ### FR-5.0 — Project and projection prerequisites
@@ -159,19 +160,21 @@ snapshot, selects work from its legal frontier, delegates and reviews, submits
 idempotent intent/evidence, and renders the authoritative accepted or rejected
 result. A `decision.recorded` event preserves reasoning without acting as the
 transition. Momo and Hermes demonstrate one authority and no duplicate commands.
-This acceptance **cannot pass today** because the standalone Lifecycle service
-and client contracts are not implemented.
+The policy-client portion of this acceptance is implemented and exercised
+against the standalone Lifecycle service. Install/doctor packaging, the shared
+Momo/Hermes WIP lock, and a revenue-product demo remain future acceptance work.
 
 ## 8. Dependencies & assumptions
 
-- **Reuse:** `33GOD/skills/momo`, `toad/src/fanout` (E4),
-  `hermes-agent-template` (E5), Bloodbank transport/contracts, PJangler identity,
-  and the tested Bloodbank lifecycle-controller embryo after extraction.
+- **Reuse:** the synchronized `momo/skill` and `33GOD/skills/momo`,
+  `toad/src/fanout` (E4), `hermes-agent-template` (E5), Bloodbank
+  transport/contracts, PJangler identity, and the standalone Lifecycle client
+  contract.
 - **Prereq (FR-5.0):** a `tp` adapter (Hermes/pjangler) for any plane/linear target — including MOMO's own repo (`agents:{}` today).
 - **External gate:** seeding a live board / running on a revenue board is an outward action — on explicit go-live only.
 
 ---
 
 _Generated as part of the Momo planning lifecycle (BMAD-style). v3 incorporates
-the approved 2026-07-18 lifecycle-authority correction; no vertical slice is
-claimed implemented._
+the approved 2026-07-18 lifecycle-authority correction and records the
+implemented policy-client vertical slice._

@@ -33,17 +33,17 @@ cannot pass before the gate.
 
 ## Epic 0 — Prerequisites & board-drivability  ·  MVP  ·  Pillar #2 enabler
 
-**Lifecycle Gate:** the standalone service has been extracted from the tested
-Bloodbank embryo with history preservation; lifecycle command/event schemas and
-outbox publication are valid; snapshot/frontier/obligation/capability contracts
-exist; and migration/replay/rollback gates pass. This is not true today.
+**Lifecycle Gate (implemented):** the standalone service, canonical
+command/event schemas, transactional outbox, and
+snapshot/frontier/obligation/capability contracts are current. The implemented
+Momo seam consumes this boundary; broader packaging stories remain open.
 
 **Goal:** Make a target repo drivable by resolving PJangler identity, an
 authoritative Lifecycle client, and a provider projection. The existing
 `momo-board.sh` exit-2 behavior remains useful current evidence but does not
 replace the Lifecycle gate.
 
-### S0.0 — Implement the Lifecycle client seam  (L) — FR-0
+### S0.0 — Implement the Lifecycle client seam  (L) — FR-0 — **implemented**
 - **AC1** Fetch a snapshot keyed by PJangler project identity with lifecycle ID,
   spec/state versions, legal frontier, obligations, blockers, and grants.
 - **AC2** Submit idempotent intent/observation/evidence commands through

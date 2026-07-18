@@ -3,9 +3,8 @@
 **Date:** 2026-07-16
 
 This guide covers how the repo is wired **today** (tooling, secrets, versioning, planning
-workflow) and the known scaffold gaps to close before/while implementation begins. There is
-no product code yet, so there is nothing to build, run, or test — this is a **planning &
-scaffold** guide.
+workflow) and the known scaffold gaps around the implemented stdlib Lifecycle
+policy client. Broader packaging and fanout remain planning work.
 
 ## Prerequisites
 
@@ -106,8 +105,8 @@ the scaffold:
    fires. → Author `AGENTS.md` (the canonical agent-instructions file) to activate this.
 4. **`agents/hermes/pm` is on `mise` `_.path`** but the `agents/` directory does not exist.
    → Create it when the Hermes PM/agent files are added, or trim the path entry.
-5. **No product code, manifests, or lockfiles** — expected (pre-implementation), noted so
-   the absence isn't mistaken for a broken checkout.
+5. **No packaged service or lockfile yet** — the stdlib policy client and tests
+   are current; broader service/fanout packaging remains deferred.
 
 ## Contributing
 

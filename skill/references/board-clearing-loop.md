@@ -36,8 +36,10 @@ action, satisfy an obligation, validate a capability, or advance state.
    client state, evidence, event trail, and live workers.
 2. **Is a worker already active and healthy?** (yours or Hermes'). Yes → monitor it, record
    state, and go to step 6. WIP=1.
-3. **Service review obligations first.** When the frontier exposes a review
-   action, run an independent adversarial review and submit its verdict/evidence.
+3. **Service review obligations first.** Use `lifecycle_client.py
+   plan-obligation` for a pending authoritative obligation with canonical
+   `skill_ref`; publish its agent invocation through Bloodbank and submit the
+   resulting completion evidence. Non-pending or non-current work is rejected.
 4. **If no worker is active, choose exactly one legal frontier item** using the
    selection policy below. Submit idempotent work-start intent with expected
    state version. Delegate only after Lifecycle accepts it.

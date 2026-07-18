@@ -22,6 +22,14 @@ enter = [
 description = "Provision this dev's shared project Hindsight key from 1Password into .env (op inject)"
 run = "{{config_root}}/.mise/scripts/hindsight-setup.sh"
 
+[tasks.test]
+description = "Run Momo policy-client tests"
+run = "python -m pytest tests -v"
+
+[tasks.lint]
+description = "Lint the Momo policy client and tests"
+run = "ruff check skill/scripts/lifecycle_client.py tests"
+
 [[watch_files]]
 patterns = ["AGENTS.md"]
 task = "link-agentfiles"

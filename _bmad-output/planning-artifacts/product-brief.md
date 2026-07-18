@@ -137,9 +137,10 @@ spec, Toad's fanout engine extraction, and the TS house-norm packaging — all *
 - **Lifecycle split-brain** → direct provider writes from Momo/Hermes can diverge
   from deterministic truth. *Mitigate: one Lifecycle command seam with versions,
   idempotency, grants, and authoritative projections.*
-- **Missing authority service** → the tested Bloodbank controller is only an
-  embryo; outbox publication and schemas drift. *Mitigate: gate the target demo
-  on extraction, history migration, contract closure, and rollback evidence.*
+- **Authority availability** → Momo must fail closed when the implemented
+  Lifecycle/Candystore/Bloodbank slice is unavailable or stale. *Mitigate:
+  require current projection, exact state version, grant context, and stable
+  authority verdict before subsequent work.*
 - **Autonomy-first scope creep** → building the heartbeat twin before validating the manual loop. *Mitigate: manual slice first.*
 
 ## 11. The one gating decision only the CEO can make

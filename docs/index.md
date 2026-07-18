@@ -3,7 +3,7 @@
 **Type:** Monolith (pjangler CommonProject) — agentic PM/EM component
 **Primary Language (decided):** Python3-stdlib + Bash (proven policy glue, with corrected Lifecycle seam) · TypeScript/Node (component wrapper, toad norm)
 **Architecture:** Modular, adapter-based, provider-agnostic
-**Status:** Pre-implementation — **promotion job** (working skill exists; repo is being packaged)
+**Status:** Implemented Lifecycle policy-client slice; broader promotion remains future work
 **Last Updated:** 2026-07-18
 **Forward plan:** [product-brief](../_bmad-output/planning-artifacts/product-brief.md) · [PRD](../_bmad-output/planning-artifacts/PRD.md) · [epics](../_bmad-output/planning-artifacts/epics.md)
 
@@ -16,17 +16,18 @@ submits auditable intent. It never calculates or writes lifecycle truth.
 
 This repo is the **promotion target**: the **fully-working skill** at `~/code/33GOD/skills/momo`
 is being formalized into a reusable, versioned component (packaged skill + generic agent spec
-+ fanout adapters; MCP proxy and heartbeat **deferred**). **No product code exists in this
-repo yet** — the working behavior lives in the skill and gets lifted here.
++ fanout adapters; MCP proxy and heartbeat **deferred**). The repo now contains
+the tested Lifecycle policy client under `skill/scripts/lifecycle_client.py`.
 
-The separate Lifecycle component is approved but not implemented; the tested
-Bloodbank controller is its extraction embryo. Direct `tp`/Trello transitions in
-the current skill are legacy behavior pending the canonical client seam.
+The separate Lifecycle authority and canonical Bloodbank contracts are
+implemented. Momo's client reads the Candystore projection and emits only
+canonical Bloodbank commands. Direct `tp`/Trello transitions remain legacy
+migration utilities and are not invoked by the authoritative workflow.
 
 ## Quick Reference
 
 - **Repository Type:** Monolith (single `pjangler` CommonProject repo)
-- **Entry Point:** `mise.toml` (operational); no product entry point yet
+- **Entry Point:** `skill/scripts/lifecycle_client.py` and `mise.toml`
 - **Architecture Pattern:** Lifecycle client/facade + Adapter (per CLI/provider projection) + Strategy/Factory + scheduled policy loop
 - **Ticket Board:** Plane, workspace `33god`, identifier `MOMO` (`state: planned`)
 - **Memory:** Hindsight, one bank per project (`momo` bank)
@@ -43,10 +44,10 @@ the current skill are legacy behavior pending the canonical client seam.
 - [Architecture](./architecture.md) — Intended architecture, current reality, the gap, and GoF pattern mapping
 - [Development Guide](./development-guide.md) — Tooling, secrets, versioning, planning workflow, and known scaffold gaps
 
-### Not Yet Applicable (no implementation)
+### Deferred surfaces
 
-The following are standard for a code project but **do not apply yet** — there is no source
-code, API, data layer, or UI. They will be generated when implementation begins:
+The policy client is implemented and tested. The following broader product
+surfaces remain deferred:
 
 - Component Inventory — *(planned components are catalogued in [architecture.md §4](./architecture.md#4-component-breakdown))*
 - API Contracts — *(the intended MCP tool surface is described in [architecture.md §4.2](./architecture.md#42-mcp-server-provider-proxy)) — To be generated when the MCP server is built*
@@ -82,21 +83,21 @@ mise tasks                     # list runnable tasks
 ### Run Locally
 
 ```bash
-# No product code yet — nothing to run.
-# Planning is done via BMAD skills, e.g.:
-#   /bmad-bmm-document-project   (produced this docs/ set)
+python3 skill/scripts/lifecycle_client.py --help
 ```
 
 ### Run Tests
 
 ```bash
-# No tests yet — no code exists.
+mise run lint
+mise run test
 ```
 
 ## For AI-Assisted Development
 
 This documentation was generated to let AI agents understand and extend Momo. Because the
-project is pre-implementation, treat these docs as the **design brief**, not a codebase map.
+the broader promotion remains incomplete, distinguish the implemented client
+under `skill/` from future agent fanout, heartbeat, and MCP surfaces.
 
 ### When Planning New Features / Starting the Build
 
@@ -113,13 +114,14 @@ project is pre-implementation, treat these docs as the **design brief**, not a c
   **Toad** `src/fanout` (the install/adapter engine to reuse), and the **Hermes template**
   (heartbeat, soul/role modeling, memory wiring — for the deferred autonomous twin).
 
-### Next Logical Step
+### Current boundary
 
 The corrected build-planning chain is complete (2026-07-18): see
 [product-brief](../_bmad-output/planning-artifacts/product-brief.md),
 [PRD](../_bmad-output/planning-artifacts/PRD.md), and
-[epics](../_bmad-output/planning-artifacts/epics.md). Next: implement and validate
-the Lifecycle extraction/contracts gate, then build Momo's conforming client seam.
+[epics](../_bmad-output/planning-artifacts/epics.md). The conforming Lifecycle
+client seam is now implemented; future work starts with packaging/fanout and
+autonomy only after the shared WIP-lock and deployment gates are proven.
 
 ---
 
