@@ -260,7 +260,10 @@ def build_obligation_completion_evidence(
             raise LifecycleClientError(f"completion contract {key} does not match invocation")
     completed_at = _timestamp(completed_at, "completed_at")
     evidence = _completion_evidence(evidence)
-    actor = _actor(command.get("actor"))
+    # The invocation actor identifies who requested the work. Completion evidence
+    # is a distinct Momo-produced authority observation and therefore carries the
+    # canonical service identity required by the Lifecycle consumer contract.
+    actor = {"type": "service", "agent_id": "momo"}
     data = {
         "contract_version": 1,
         "lifecycle_id": _required_text(selection, "lifecycle_id"),

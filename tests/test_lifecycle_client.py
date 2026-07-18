@@ -141,6 +141,7 @@ def test_completion_is_distinct_schema_exact_evidence_and_retry_stable():
 
     assert retry == first
     assert first["source"] == "urn:33god:service:momo"
+    assert first["actor"] == {"type": "service", "agent_id": "momo"}
     assert first["causationid"] == invocation["invocation_command"]["id"]
     assert first["correlationid"] == invocation["invocation_command"]["correlationid"]
     assert first["ordering_key"] == f"lifecycle:{LIFECYCLE_ID}"
