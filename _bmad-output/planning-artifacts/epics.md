@@ -1,11 +1,17 @@
-# Momo — Epics & Stories (v2, post-adversarial-review)
+# Momo — Epics & Stories (v3, lifecycle-boundary corrected)
 
-**Date:** 2026-07-16
+**Date:** 2026-07-18
 **Author:** Momo (acting PM, on Jarad's behalf)
 **Companion docs:** [product-brief.md](./product-brief.md) · [PRD.md](./PRD.md) · [../../docs/architecture.md](../../docs/architecture.md)
-**Revision:** v2 — rewritten after a 4-lens adversarial review (contract-fidelity, pillar/statue-risk, completeness, pre-mortem) surfaced 4 blockers + 17 majors, all verified against the as-built. Net effect: the **MVP shrank** (demo-first; ship the proven Claude skill directly; defer the generic-spec + fanout machinery to the real 2nd call-site) and two hard prerequisites were surfaced.
+**Revision:** v3 preserves the v2 scope reduction and applies the user-approved
+Major Correct Course boundary. Momo is a PM/EM policy client; the separate
+Lifecycle component is the deterministic state authority. The root has no epic
+set, so these Momo epics are the affected implementation backlog.
 
-**Sequencing principle:** shortest path to a demoable slice **on a revenue product's board** (Pillar #1), refereed by Rule of Three. **MVP = the Revenue Gate + E0 + E1 + E2.** E3 is polish; E4 is the Rule-of-Three second occurrence; E5–E6 deferred/gated.
+**Sequencing principle:** shortest path to a demoable slice on a revenue product,
+within actions authorized by Lifecycle. **Target MVP = Revenue Gate + Lifecycle
+Gate + E0 + E1 + E2.** Packaging may proceed independently, but lifecycle claims
+cannot pass before the gate.
 
 **ACs** are enumerated + testable (they must pass Momo's own triage rubric — dogfooding the gate). **Sizing:** S ≤½d · M ½–1d · L 1–2d (solo).
 
@@ -27,15 +33,37 @@
 
 ## Epic 0 — Prerequisites & board-drivability  ·  MVP  ·  Pillar #2 enabler
 
-**Goal:** Make a target repo actually drivable by Momo. **This unblocks everything** — verified: `momo-board.sh` exits 2 for plane/linear without an installed `tp` adapter (`<role_dir>/.scripts/lib/ticket-provider.sh`), and both MOMO's own repo (`agents:{}`) and any fresh pjangler scaffold lack it.
+**Lifecycle Gate:** the standalone service has been extracted from the tested
+Bloodbank embryo with history preservation; lifecycle command/event schemas and
+outbox publication are valid; snapshot/frontier/obligation/capability contracts
+exist; and migration/replay/rollback gates pass. This is not true today.
 
-### S0.1 — Provision the `tp` adapter into the target repo  (M) — FR-5.0 *(new)*
+**Goal:** Make a target repo drivable by resolving PJangler identity, an
+authoritative Lifecycle client, and a provider projection. The existing
+`momo-board.sh` exit-2 behavior remains useful current evidence but does not
+replace the Lifecycle gate.
+
+### S0.0 — Implement the Lifecycle client seam  (L) — FR-0
+- **AC1** Fetch a snapshot keyed by PJangler project identity with lifecycle ID,
+  spec/state versions, legal frontier, obligations, blockers, and grants.
+- **AC2** Submit idempotent intent/observation/evidence commands through
+  registered Bloodbank contracts with expected state version and capability.
+- **AC3** Render accepted, rejected, stale, and unavailable outcomes without a
+  direct provider transition or optimistic local write.
+- **AC4** A conformance test fails if Momo calculates a transition, obligation,
+  frontier, or capability decision locally.
+
+### S0.1 — Provision the provider projection adapter  (M) — FR-5.0
 - **AC1** For a **plane/linear** target, a `tp` adapter exists at `<role_dir>/.scripts/lib/ticket-provider.sh` and `.project.json.agents{}` names its `role_dir` — provisioned via a Hermes PM deploy **or** a standalone pjangler `tp` install (a Toad/pjangler action, per boundary D6 — **not** Momo minting it).
-- **AC2** `momo-board.sh resolve` returns `{provider,board_id,board_url}` (no `exit 2`) for the target.
-- **AC3** For a **trello** target, this story is a no-op (the bundled `trello.py` needs no `role_dir`) — documented as the friction-free first demo path.
+- **AC2** `momo-board.sh resolve` returns provider projection identity for the
+  target; no result is treated as authoritative Lifecycle state.
+- **AC3** For a **trello** target, the bundled adapter needs no `role_dir`, but it
+  remains a projection/migration adapter and cannot bypass S0.0.
 
 ### S0.2 — `board_id` self-heal  (M) — FR-5.1
-- **AC1** When `.project.json.ticket_provider.board_id` is empty, resolve by **exact** board name in the workspace via `momo-board.sh`→`tp`; backfill it into `.project.json`.
+- **AC1** When `.project.json.ticket_provider.board_id` is empty, resolve by
+  exact board name, backfill the PJangler/bootstrap binding, and submit the
+  repaired identity as an observation; do not mutate Lifecycle state.
 - **AC2** The backfill is recorded via `record-decision.py` with `data.basis` = process-pillar slug(s) (e.g. `one-source-of-truth`, `respect-the-contracts`).
 - **AC3** Zero/multiple matches → **fail loud**, surface candidates, no guess.
 
@@ -45,16 +73,22 @@
 
 ## Epic 1 — Promote the skill (SSOT), correctly  ·  MVP  ·  Pillar #3
 
-**Goal:** The proven skill becomes the repo's SSOT — lifted verbatim **except** the two spots the review proved must change.
+**Goal:** The proven PM/EM policy becomes the repo's SSOT. Preserve delegation,
+review, pillars, and provenance while replacing legacy transitions with the
+Lifecycle client and parameterizing actor identity.
 
 ### S1.1 — SSOT-drift resolution + no-fork guarantee  (M) — FR-1.1
 - **AC1** Confirm `33GOD/skills/momo` is canonical (the `skillex` path is dead); record the decision.
 - **AC2** After the lift, the operator's **global** installed skill is regenerated-from / symlinked-to the repo master (no second drifting copy); `momo fanout check` (E4) is scoped to cover the global install.
 - **AC3** BRAINDUMP/doc references to the stale path are corrected.
 
-### S1.2 — Lift the skill verbatim, with two surgical changes  (M) — FR-1, FR-6
-- **AC1** `SKILL.md`, `references/*`, `templates/*`, `scripts/{momo-board.sh,record-decision.py,momo-config.py,providers/trello.py}` are in the repo; behavior spot-verified identical on `resolve`/`list_issues`/dry `record-decision`.
-- **AC2 (surgical #1)** `record-decision.py` `actor.cli`/`actor.provider` are **parameterized** from the active carrier (default `claude`/`anthropic`), because line 124 hardcodes them and any non-Claude carrier would emit a lying actor. "Preserve exactly" applies to the event **type**, derived subject, and dual-sink — **not** the hardcoded actor identity.
+### S1.2 — Promote proven policy and isolate required changes  (M) — FR-0, FR-1, FR-6
+- **AC1** `SKILL.md`, `references/*`, `templates/*`, and current scripts are in
+  the repo; policy/delegation/review/provenance behavior is spot-verified while
+  target transition behavior conforms to S0.0 rather than direct provider writes.
+- **AC2** `record-decision.py` `actor.cli`/`actor.provider` are parameterized
+  from the active carrier. Preserve the event type, derived subject, and
+  dual-sink, not the hardcoded actor identity.
 - **AC3** Scripts stay stdlib-only (python3 + bash); no new deps.
 
 ### S1.3 — Two-tier pillar fidelity  (S) — FR-6.2
@@ -62,18 +96,28 @@
 - **AC2** Any decision-basis validation/test accepts **process-pillar** slugs (the board_id self-heal uses them) — not only the 4 product slugs.
 - **AC3** The **safety-supremacy invariant** is documented: safety/process pillars (no-code-mutation, reviewer-independence, evidence, respect-the-contracts) are never overridden by a product pillar.
 
-### S1.4 — Prove byte-identity with Hermes (differential test)  (M) — NFR-1
-- **AC1** Run the **same board** through `momo-board.sh` **and** the Hermes sentinel's `tp` adapter; assert normalized output (`resolve`/`list_issues`/`transition`) is **identical** — a differential test, not self-consistency.
+### S1.4 — Prove one authority with Hermes  (M) — NFR-1
+- **AC1** Run the same provider projection through Momo and Hermes; assert
+  normalized read output is identical, then prove both clients use the same
+  Lifecycle snapshot/command contracts for state-changing intent.
 - **AC2** Assert `momo-board.sh` resolves the **same** `role_dir`/`tp` instance Hermes binds to (no divergent copy).
-- **AC3 (Trello)** Golden differential test: Momo's `trello.py` vs Hermes' `tp providers/trello.sh` return identical output on a shared fixture board; **consolidate to one** Trello backend before any Trello target runs both. (NFR-1 byte-identity holds via `tp` for plane/linear; Trello divergence is explicitly scoped until consolidated.)
+- **AC3 (Trello)** Golden differential test: Momo's `trello.py` and Hermes'
+  adapter return identical read projections on a fixture. Neither adapter is
+  permitted to author target lifecycle truth.
 
-### S1.5 — Reconcile the reconcile-pass definition (one source)  (M) — NFR-1 *(review: 2 live call-sites now)*
-- **AC1** The lifted board-clearing loop and the Hermes sentinel pass definition (`continuous-ticket-sentinel.prompt.md`) are reconciled into **one source** ("same loop, different trigger").
-- **AC2** On a repo with a live Hermes PM, both drivers respect shared **WIP=1** without contradiction (proven, not asserted).
+### S1.5 — Reconcile the process-manager pass definition  (M) — NFR-1
+- **AC1** The lifted Momo loop and Hermes pass share one client protocol: fetch
+  authoritative snapshot, select from legal frontier, submit intent/evidence,
+  and render the resulting state.
+- **AC2** On a repo with both clients, command idempotency and expected-version
+  rejection prevent duplicate/conflicting state writes; WIP=1 also prevents
+  duplicate worker dispatch.
 - **AC3** Divergence between the two is caught by a check (they can't silently drift).
 
 ### S1.6 — Doc corrections (enumerated)  (S) — FR-1.4
-- **AC1** `docs/architecture.md`: MCP proxy marked **deferred**; language decided (two-tier); **D5** correction present; §3 Target column annotated (MVP vs deferred); §6 "servers" phrasing → `tp`/`trello.py`; pattern mislabels fixed (Pipeline/Template Method, Scheduler); §4.5/§8 gateway-PM vs scrum-master distinction stated.
+- **AC1** `docs/architecture.md`: Lifecycle is the sole state authority; Momo is
+  a policy/intent client; current direct provider transitions are labeled legacy;
+  MCP/heartbeat deferrals and gateway-PM versus scrum-master distinctions remain.
 - **AC2** `docs/index.md` + `docs/project-overview.md` carry the corrected language + promotion framing (verified: no `skillex` path, no "undecided").
 - **AC3** `llr` recency check shows the docs are the most recently mutated (truth compass).
 
@@ -81,10 +125,15 @@
 
 ## Epic 2 — Minimal install + the demo  ·  MVP  ·  **Pillar #1 milestone (comes FIRST)**
 
-**Goal:** One command installs the **proven Claude skill** into a target repo and it clears a slice of a **revenue product's** board. No generic spec, no fanout engine — those are E4.
+**Goal:** One command installs the proven policy skill into a target repo; on a
+revenue product it selects legal work, delegates/reviews, submits
+intent/evidence, and renders Lifecycle's authoritative result. No generic spec
+or fanout engine is required here.
 
-### S2.0 — Record the sellable demo NOW (front-loaded)  (S) — brief §6 *(review: don't let the demo get cut)*
-- **AC1** The **existing** skill is recorded (asciinema/DEMO.md) triaging → delegating → reviewing → moving an issue to `completed` on a real board, **before** any packaging (the behavior already exists).
+### S2.0 — Record the current-policy demo  (S) — brief §6
+- **AC1** The existing skill may be recorded triaging, delegating, and reviewing,
+  but any direct move to `completed` is labeled legacy current behavior and is
+  not target lifecycle acceptance.
 - **AC2** The recording shows a `decision.recorded` event landing in `bloodbank-events.jsonl` with pillar basis.
 - **AC3** The "sellable slice" narrative no longer depends on E1–E2 landing.
 
@@ -93,19 +142,27 @@
 - **AC2** Idempotent; resolves the nearest-ancestor `.project.json`; a second run is a clean no-op/update.
 - **AC3** After install, a recorded decision lands in the **exact** `_bmad-output/implementation-artifacts/bloodbank-events.jsonl` path the target repo's Hermes sentinel reads (create the dir if absent).
 
-### S2.2 — `momo doctor` hard prereq gate  (M) — FR-2.3, NFR-3, D5 *(review: "liftable" hides prereqs)*
-- **AC1** `momo doctor` enumerates and checks **all** runtime prereqs for the resolved provider: `python3`, `bash`, (`tp` adapter present **for plane/linear**) **OR** (`TRELLO_*` creds for trello), `$BLOODBANK_HOME` reachable, `PLANE_<WS>_API_KEY`/`TRELLO_*` present.
+### S2.2 — `momo doctor` hard prereq gate  (M) — FR-2.3, NFR-3
+- **AC1** `momo doctor` checks local runtime, PJangler identity, provider
+  projection, Bloodbank reachability/schema compatibility, Lifecycle health,
+  snapshot/command versions, and the caller's capability grant.
 - **AC2** It **refuses to report "ready"** until green; `record-decision.py` exit-3 (bus behind) surfaces as a visible warning, not a swallowed degrade.
-- **AC3 (executable D5 guard)** A CI/lint assertion fails if any source imports or spawns `plane-mcp-server`, or if board access bypasses `momo-board.sh`/`tp`/`trello.py`.
+- **AC3** A conformance guard fails if a target path directly invokes a provider
+  transition, derives legal state locally, or emits an unregistered contract.
 
 ### S2.3 — Real shared lock for WIP=1  (M) — NFR-1 *(review: TOCTOU race vs Hermes 60s timer)*
 - **AC1** Interactive Momo takes the sentinel's `flock` (or writes an `interactive-hold` marker the sentinel's cheap bash gate honors and **skips on**) — mutual exclusion, not politeness.
-- **AC2** A simulated concurrent tick during a Momo dispatch does **not** produce two workers / double-transition.
-- **AC3** Documented: deferring E5 does **not** defer this coexistence race — it's live the instant Momo installs onto a Hermes-run board.
+- **AC2** A simulated concurrent tick produces neither two workers nor two
+  effective commands; repeated command IDs return the original result.
+- **AC3** Documented: deferring E5 does not defer this coexistence race — it is
+  live the instant Momo installs into a Hermes-managed project.
 
-### S2.4 — Demo on the revenue board  (S) — Revenue Gate, PRD §7
-- **AC1** `momo install` into the chosen **revenue product's** repo → Momo clears a real slice of **that** board (not MOMO's).
-- **AC2** "Cleared a slice of a revenue product's board" is the MVP acceptance criterion (the circular MOMO-on-MOMO metric is dropped).
+### S2.4 — Demo on the revenue product  (S) — Revenue + Lifecycle Gates
+- **AC1** `momo install` into the chosen revenue product → Momo chooses a legal
+  frontier item, delegates/reviews, submits intent/evidence, and renders the
+  authoritative resulting state.
+- **AC2** The demo proves version/provenance, capability validation, idempotency,
+  and no direct provider write. MOMO-on-MOMO remains excluded.
 - **AC3** The demo is re-recorded against the installed component.
 
 ---
@@ -149,7 +206,8 @@
 
 ## Epic 5 — Autonomous twin (Hermes adapter)  ·  DEFERRED / GATED  ·  Pillar #1 gate
 
-**Goal:** Momo becomes a Hermes PM — the same reconcile loop on a timer.
+**Goal:** Momo becomes a Hermes PM client — the same legal-work selection and
+intent loop on a timer, never a second lifecycle reconciler.
 **Gate:** manual loop validated (E2) **and** a revenue product needs autonomy.
 
 ### S5.1 — Hermes adapter (NET-NEW provisioning bridge)  (L)
@@ -161,26 +219,35 @@
 ### S5.2 — Lift the heartbeat trigger  (L)
 - **AC1** `continuous-ticket-sentinel.sh` is the timer trigger over the **already-reconciled** single pass definition (S1.5).
 - **AC2** Liveness keys off process markers + `last_activity_at` (**never** state-file mtime); cooldowns/lock preserved.
-- **AC3** Interactive Momo and the twin drive the board without contradiction (WIP=1 via the S2.3 shared lock).
+- **AC3** Interactive Momo and the twin share Lifecycle command semantics without
+  contradiction (idempotency/version checks plus the S2.3 WIP lock).
 
 ---
 
 ## Epic 6 — MCP proxy server  ·  DEFERRED / GATED  ·  Rule of Three (2nd consumer)
 
-**Goal:** A thin TS MCP (~6–8 coarse verbs) delegating to `momo-board.sh`/`tp`.
+**Goal:** A thin TS MCP exposing coarse PM/EM reads and Lifecycle intent commands.
 **Gate:** a second consumer needs programmatic board access beyond the skill.
 
 ### S6.1 — Thin proxy over the normalized contract  (L) — D5
-- **AC1** Verbs = the **6** ops Momo actually speaks (`board_resolve`, `board_active_milestone`, `board_list_issues`, `issue_get`, `issue_comment`, `issue_transition`) + composites (`triage_ticket`, `pick_next`, `record_decision`). **`create_board` is excluded** (Toad/pjangler's job, boundary D6).
-- **AC2** Every verb delegates to `momo-board.sh`/`tp`/`trello.py` — **asserted: never the Python Plane MCP** (the executable D5 guard from S2.2/S3.1 already enforces this), never the raw 61+90 tools.
+- **AC1** Verbs separate snapshot/frontier reads, observations/comments,
+  delegation/review evidence, idempotent intent submission, and decision
+  provenance. Provider creation remains PJangler's boundary.
+- **AC2** State-changing verbs delegate to the Lifecycle command client through
+  Bloodbank. Provider adapters may serve projection reads only.
 - **AC3** Trello backend already consolidated (S1.4 AC3) — no third path introduced.
 
 ---
 
 ## Cross-cutting definition of done
 
-Every story: ACs met and demonstrated; consequential judgment calls recorded via `record-decision.py` with process- and/or product-pillar basis; board updated through `momo-board.sh`→`tp` only; no code edited by Momo itself (delegated); WIP=1 held via a real lock on live-Hermes repos; docs kept honest (`llr`-checked).
+Every story: ACs met and demonstrated; consequential judgment calls recorded via
+`record-decision.py`; decision events never enact transitions; legal work comes
+from an authoritative versioned frontier; state-changing intent goes only through
+Lifecycle; no code is edited by Momo itself; WIP=1 is held; docs stay honest.
 
 ---
 
-_Generated as part of the Momo planning lifecycle (BMAD-style). v2 incorporates the adversarial-review findings._
+_Generated as part of the Momo planning lifecycle (BMAD-style). v3 incorporates
+the approved 2026-07-18 lifecycle-authority correction; the vertical slice is not
+implemented._

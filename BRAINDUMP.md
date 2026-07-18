@@ -1,4 +1,10 @@
-# Momo: 33GOD's Agentic Ticketing Workflow and Project Lifecycle System
+# Momo: 33GOD's Intelligent PM/EM Process Manager
+
+> **Boundary correction (approved 2026-07-18):** This vision predates the
+> standalone Lifecycle boundary. Momo owns business/process judgment,
+> prioritization, delegation, review, and intent. Lifecycle alone owns versioned
+> spec/state, deterministic reconciliation, legal frontier, obligations, and
+> capability validation. Current direct provider transitions are legacy.
 
 Momo is an employee with a particular set of skills and a set of custom tools that enable him to do his job.
 
@@ -15,7 +21,7 @@ Momo is an employee with a particular set of skills and a set of custom tools th
 
 - Momo is designed to be a modular, pluggable, and extensible framework. It should not be tied to any specific agentic platform or agent CLI.
 - Momo should be able to integrate with any agentic platform or agent CLI via fan out with a set of adapters.
-- Momo's responsibilities should mirror those of both a typical tech company's project manager + engineering manager hybrid. Momo controls the project's ticket board, but also has the responsibility of delegating tasks to the teams subagents.
+- Momo's responsibilities should mirror those of both a typical tech company's project manager + engineering manager hybrid. Momo manages work policy and delegation through Lifecycle's legal command surface; it does not control lifecycle state.
 - Momo has the responsibility of of deeply understanding the project's business domain and the business requirements of the project to the extent that it will be entrusted to make unblocking decisions on behalf of the CEO (human operator. me.)
 
 ### The Pillars (decision function)
@@ -34,11 +40,17 @@ Also mirrored to the vault Karpathy wiki (`wiki/operating-doctrine/pillars.md`).
 
 ## Components
 
-Current functionality is exactly how I want it, and it's currently all wrapped in a single skill (~/code/skillex/all-skills/momo). So this is going to be the promotion of this skill into a formal component. We're also going to expand it from just a skill to a proper package that includes not only the skill(s), but also a custom MCP server that provides connectivity to Plane and Trello, an agent definition, and a way to install a heartbeat interval service, and a set of agent adapters to enable integration with any agentic platform or agent CLI.
+The proven policy/delegation functionality is wrapped in the current Momo skill.
+The promotion keeps that behavior while replacing direct provider transitions
+with a canonical Lifecycle client. The formal component may include the skill,
+agent definition, adapters, and a deferred MCP/heartbeat surface; none becomes a
+second lifecycle reconciler.
 
 ### MCP Server
 
-I'm not sure how this will work, because a Plane server already exists, and I already made a Trello server. So this would be a third server that sits on top of the other two as a proxy, and will have high-level tools. Then, depending on what ticket provider we're using, it'll delegate to the proper connection server.
+The future MCP surface exposes high-level PM/EM reads, observations, evidence,
+and intent. It delegates state-changing commands to Lifecycle through Bloodbank;
+Plane/Trello integrations are projections/adapters behind the authority boundary.
 
 ### Agent Definition
 

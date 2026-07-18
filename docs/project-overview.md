@@ -1,17 +1,22 @@
 # Momo - Project Overview
 
-**Date:** 2026-07-16
+**Date:** 2026-07-18
 **Type:** Agentic PM/EM component (pre-implementation) within the 33GOD platform
 **Architecture:** Modular, adapter-based, provider-agnostic (intended)
 
 ## Executive Summary
 
-**Momo** is 33GOD's *Agentic Ticketing Workflow and Project Lifecycle System* — an
-AI "employee" that plays a **project-manager + engineering-manager hybrid**: it owns a
-project's ticket board, refines and prioritizes work, delegates every code change to
+**Momo** is 33GOD's intelligent **PM/EM process-manager**. It refines and
+prioritizes work within Lifecycle's legal frontier, delegates every code change to
 subagents (it never edits code itself), reviews to a high bar, and is entrusted to make
 unblocking decisions **on the CEO's behalf** using a declarative decision function (see
 [PILLARS.md](../PILLARS.md)).
+
+Momo does not own project lifecycle truth. The approved separate headless
+Lifecycle component owns versioned spec/state, deterministic reconciliation,
+frontier, obligations, and capability validation. Bloodbank owns contracts and
+transport; Candystore owns durable history/read models; PJangler owns
+project/bootstrap identity; Holocene renders and submits high-level commands.
 
 This repository is **not yet an implementation** — it is the **promotion target** for an
 existing, proven skill. Momo currently lives as a **fully-working skill** at
@@ -26,9 +31,15 @@ repo is where that skill is being promoted into a formal, reusable 33GOD **compo
 [epics](../_bmad-output/planning-artifacts/epics.md)) — no product source code has been
 written here yet.
 
+The standalone Lifecycle service is also not implemented. Its tested embryo is
+currently under Bloodbank and must be extracted with history preservation. The
+working Momo skill's direct provider transitions are legacy current behavior,
+not the target state-write contract.
+
 > Momo is the **interactive / human-drivable twin** of the **autonomous Hermes PM**. Both
-> share the same Plane board and the same per-project Hindsight memory bank. The end state:
-> what Hermes does autonomously on a heartbeat, Momo can also do manually — and be installed
+> share the same authoritative Lifecycle client contract, provider projection,
+> and per-project Hindsight memory bank. The end state: what Hermes selects and
+> submits autonomously on a heartbeat, Momo can also do manually — and be installed
 > into *any* agent CLI (Claude, Gemini, Codex, OpenCode, Kimi) via fan-out adapters.
 
 ## Project Classification
@@ -38,11 +49,12 @@ written here yet.
   skill. Target surface spans a **CLI/skill workflow**, a **generic agent definition +
   fanout adapters**, and (deferred) an MCP proxy + heartbeat. Does not map cleanly onto a
   single BMAD project type (web/backend/cli/library/…); it is a *composite* component.
-- **Primary Language(s) (decided):** **Python3-stdlib + Bash** for the skill glue (lifted
-  verbatim from the proven skill) and **TypeScript/Node** for the component wrapper (CLI +
+- **Primary Language(s) (decided):** **Python3-stdlib + Bash** for the proven
+  policy glue, with the direct state seam corrected, and **TypeScript/Node** for the component wrapper (CLI +
   fanout + any future MCP), matching the toad/pjangler house norm.
-- **Architecture Pattern:** *Intended* — Proxy over ticket providers, Adapter for agent
-  CLIs, Strategy for provider selection, plus an event-driven heartbeat loop. See
+- **Architecture Pattern:** *Intended* — client/facade over Lifecycle
+  snapshots/commands, Adapter for agent CLIs and provider projections, Strategy
+  for projection selection, plus a scheduled policy loop. See
   [architecture.md](./architecture.md).
 
 ## What Momo Is (four facets)
@@ -52,30 +64,33 @@ From [BRAINDUMP.md](../BRAINDUMP.md), Momo is simultaneously:
 1. **An agent specification** — a role + personality, kept deliberately CLI-agnostic.
 2. **A skill package** — the precise workflows that constitute its job (triage, refine,
    decide-what's-next, orchestrate a ticket, review, clear the board, record decisions).
-3. **An MCP server** — high-level PM tools that proxy down to a Plane server and a Trello
-   server, selecting the backend based on the project's configured ticket provider.
+3. **An MCP server (deferred)** — high-level PM tools that read Lifecycle
+   projections and submit intent; provider adapters are not state authority.
 4. **A framework-agnostic package with adapters** — installable into any agent CLI, plus a
    heartbeat interval service that gives it autonomous agency on a declarative goal set.
 
 ## Key Features (target capabilities)
 
-- **Board ownership** — survey, triage, refine, and prioritize tickets on a Plane or
-  Trello board via a provider-agnostic adapter (`tp`).
+- **Process ownership** — survey authoritative work, apply business policy,
+  triage/refine, choose from the legal frontier, and submit intent/evidence.
+- **Lifecycle client** — preserve lifecycle ID, spec/state versions, frontier,
+  obligations, blockers, grants, and command outcomes; never write truth locally.
 - **Delegation, not authorship** — orchestrates implementation by dispatching every code
   change to subagents; Momo itself stays out of the editor.
 - **Decision function** — ranks candidate actions by walking [The Pillars](../PILLARS.md)
   in priority order; when blocked, the lowest-numbered applicable pillar is the tiebreaker.
 - **Decision provenance** — records consequential judgment calls as **Bloodbank** decision
   events tagged against the pillars.
-- **Provider agnosticism** — Plane/Linear (via the repo `tp` adapter) or Trello (bundled
-  adapter + `.momo/config.json` lane map), resolved from `.project.json`.
+- **Provider agnosticism** — Plane/Linear or Trello projections are resolved from
+  PJangler identity/config; provider state cannot override Lifecycle.
 - **Per-project memory** — Hindsight, one bank per project (kept identical to the current
   Hermes PM bank; memory is scoped by *project*, not by agent identity).
 
 ## Architecture Highlights
 
-- **Provider proxy MCP** sits *above* the existing Plane MCP and the existing Trello MCP,
-  exposing coarse PM verbs and delegating to whichever backend the project declares.
+- **Lifecycle client MCP** exposes coarse snapshot/frontier, observation/evidence,
+  decision, and intent verbs. State-changing commands route through Bloodbank to
+  Lifecycle, not directly to Plane/Trello.
 - **Generic agent spec → per-CLI adapters** (Hermes, Codex, OpenCode, Kimi, Gemini,
   Claude). The Hermes fleet is the reference: personality via a *soul* file, role via a
   *role* file — the generic spec is what an adapter ports *into* those.
@@ -136,6 +151,10 @@ For detailed information, see:
 - [../BRAINDUMP.md](../BRAINDUMP.md) — Source vision (product definition)
 - [../PILLARS.md](../PILLARS.md) — The decision function (operating doctrine)
 
+Target implementation order is defined by the v3 epics: Lifecycle extraction and
+contracts first, then Momo client conformance, then the revenue-product demo.
+
 ---
 
-_Generated using BMAD Method `document-project` workflow_
+_Generated using BMAD Method `document-project` workflow; reconciled by Correct
+Course on 2026-07-18. No lifecycle vertical slice is implemented._

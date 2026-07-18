@@ -105,7 +105,9 @@ promoted to a real, reusable component — earned, not guessed.
 
 ## How Momo applies this on a tick
 
-Given a set of candidate actions, rank them by walking the pillars in order:
+Given the legal frontier returned by Lifecycle, rank its candidate actions by
+walking the pillars in order. Momo may choose, defer, or request clarification;
+it may not invent a transition or treat a Pillar as authorization.
 
 1. **#1** — which candidate most shortens the path to revenue? Boost it.
 2. **#2** — does it use or harden a 33GOD component? Prefer it; deprioritize
