@@ -1,10 +1,11 @@
 # Momo - Development Guide
 
-**Date:** 2026-07-16
+**Date:** 2026-07-19
 
 This guide covers how the repo is wired **today** (tooling, secrets, versioning, planning
 workflow) and the known scaffold gaps around the implemented stdlib Lifecycle
-policy client. Broader packaging and fanout remain planning work.
+policy client and `nats-py` durable obligation actor. Broader packaging and
+fanout remain planning work.
 
 ## Prerequisites
 
@@ -84,6 +85,24 @@ Suggested next BMAD steps once you're ready to build: product brief → PRD → 
   state-changing intent goes through Bloodbank to Lifecycle; the current `tp`
   adapter exposes provider-owned ticket/board records, never lifecycle truth.
 
+## Durable Obligation Actor
+
+`skill/scripts/obligation_worker.py` is a bounded production seam, not a
+Lifecycle reconciler. It creates or binds the configured named JetStream
+durable, fetches one canonical invocation, validates its exact expectation,
+resolves the promoted adapter resource, executes the current-run evidence
+package, and writes a hashed report. Its completion event time and ID derive
+from the immutable invocation. Publication uses the exact event ID as
+`Nats-Msg-Id`; the invocation is acknowledged only after completion PubAck, and
+the receipt is written only after `ack_sync` succeeds.
+
+Run `python3 skill/scripts/obligation_worker.py --help` for the required NATS,
+expectation, catalog/resource, evidence, report, receipt, readiness, and durable
+arguments. Tests use a fake JetStream to assert headers, PubAck/ACK ordering,
+retry identity, and every no-ACK/no-receipt failure path. A live invocation must
+still arrive through Bloodbank-owned transport; do not pass envelopes directly
+to the worker or use it to write lifecycle state.
+
 ## Code Intelligence (codegraph)
 
 - The repo is indexed: `.codegraph/codegraph.db` (~6 MB) with a running daemon
@@ -106,8 +125,9 @@ the scaffold:
    fires. → Author `AGENTS.md` (the canonical agent-instructions file) to activate this.
 4. **`agents/hermes/pm` is on `mise` `_.path`** but the `agents/` directory does not exist.
    → Create it when the Hermes PM/agent files are added, or trim the path entry.
-5. **No packaged service or lockfile yet** — the stdlib policy client and tests
-   are current; broader service/fanout packaging remains deferred.
+5. **No always-on packaged service yet** — the repo now has `pyproject.toml`,
+   `uv.lock`, the stdlib policy client, the bounded `nats-py` actor, and tests;
+   broader service/fanout packaging remains deferred.
 
 ## Contributing
 
@@ -120,4 +140,5 @@ the scaffold:
 
 ---
 
-_Generated using BMAD Method `document-project` workflow_
+_Generated using BMAD Method `document-project` workflow and updated for the
+durable obligation actor on 2026-07-19._

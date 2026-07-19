@@ -71,11 +71,13 @@ class FakeJetStream:
         )
         self.published_subject = None
         self.published_payload = None
+        self.published_headers = None
 
-    async def publish(self, subject, payload, *, timeout):
+    async def publish(self, subject, payload, *, timeout, headers=None):
         self.operations.append("publish_called")
         self.published_subject = subject
         self.published_payload = payload
+        self.published_headers = headers
         if self.publish_error:
             raise self.publish_error
         self.operations.append("puback_returned")
@@ -218,7 +220,14 @@ def write_evidence_package(tmp_path, plan, *, bad_assertion=False):
     return package_path
 
 
-def process(tmp_path, *, expectation=None, package_path=None, js=None, msg=None):
+def process(
+    tmp_path,
+    *,
+    expectation=None,
+    package_path=None,
+    js=None,
+    msg=None,
+):
     plan = invocation_plan()
     operations = []
     expectation = expectation or expectation_for(plan)
@@ -237,7 +246,6 @@ def process(tmp_path, *, expectation=None, package_path=None, js=None, msg=None)
             receipt_path=tmp_path / "worker-receipt.json",
             expected_stream=STREAM,
             consumer=CONSUMER,
-            clock=lambda: "2026-07-18T12:30:00Z",
             publish_timeout=2.0,
             ack_timeout=2.0,
         )
@@ -346,10 +354,51 @@ def test_completion_puback_precedes_invocation_ack_and_receipt_links_identity(tm
     assert persisted["artifact"]["size_bytes"] == len(exact_artifact)
     assert persisted["artifact"]["sha256"] == hashlib.sha256(exact_artifact).hexdigest()
     assert persisted["completion"]["event_id"] == completion["id"]
+    assert js.published_headers == {"Nats-Msg-Id": completion["id"]}
     assert persisted["completion"]["stream"] == "BLOODBANK_EVENTS"
     assert persisted["completion"]["stream_sequence"] == 84
     ordered = [item["operation"] for item in persisted["operation_order"]]
     assert ordered.index("completion_puback") < ordered.index("invocation_ack_sync")
+
+
+def test_ack_sync_failure_after_completion_puback_leaves_delivery_unacked_without_receipt(
+    tmp_path,
+):
+    plan = invocation_plan()
+    operations = []
+    msg = FakeMessage(
+        plan["invocation_command"],
+        operations,
+        ack_error=RuntimeError("ack confirmation unavailable"),
+    )
+    js = FakeJetStream(operations)
+
+    with pytest.raises(worker.ObligationWorkerError, match="ack_sync failed"):
+        process(tmp_path, msg=msg, js=js)
+
+    completion = json.loads(js.published_payload)
+    assert js.published_headers == {"Nats-Msg-Id": completion["id"]}
+    assert operations.index("puback_returned") < operations.index("ack_sync_called")
+    assert msg.acked is False
+    assert not (tmp_path / "worker-receipt.json").exists()
+
+
+def test_redelivery_reuses_invocation_derived_completion_identity_and_time(tmp_path):
+    attempts = []
+    for name in ("first", "redelivery"):
+        attempt_path = tmp_path / name
+        attempt_path.mkdir()
+        plan, _msg, js, _operations, _receipt = process(attempt_path)
+        attempts.append((plan, json.loads(js.published_payload), js.published_headers))
+
+    first_plan, first_completion, first_headers = attempts[0]
+    retry_plan, retry_completion, retry_headers = attempts[1]
+    invocation_time = first_plan["invocation_command"]["time"]
+    assert retry_plan["invocation_command"]["id"] == first_plan["invocation_command"]["id"]
+    assert retry_completion["id"] == first_completion["id"]
+    assert retry_completion["time"] == first_completion["time"] == invocation_time
+    assert retry_completion["data"]["completed_at"] == invocation_time
+    assert first_headers == retry_headers == {"Nats-Msg-Id": first_completion["id"]}
 
 
 @pytest.mark.parametrize("failure_stage", ["validation", "adapter", "hash", "publish"])
@@ -387,7 +436,6 @@ def test_validation_adapter_hash_and_publish_failures_never_ack(
                 receipt_path=tmp_path / "worker-receipt.json",
                 expected_stream=STREAM,
                 consumer=CONSUMER,
-                clock=lambda: "2026-07-18T12:30:00Z",
                 publish_timeout=2.0,
                 ack_timeout=2.0,
             )

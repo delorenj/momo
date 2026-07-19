@@ -1,7 +1,7 @@
 # Momo - Project Overview
 
-**Date:** 2026-07-18
-**Type:** Agentic PM/EM component with an implemented Lifecycle client slice
+**Date:** 2026-07-19
+**Type:** Agentic PM/EM component with implemented Lifecycle client and durable obligation-actor slices
 **Architecture:** Modular, adapter-based, provider-agnostic (intended)
 
 ## Executive Summary
@@ -15,14 +15,16 @@ unblocking decisions **on the CEO's behalf** using a declarative decision functi
 Momo does not own project lifecycle truth. The approved separate headless
 Lifecycle component owns versioned spec/state, deterministic reconciliation,
 frontier, obligations, and capability validation. Bloodbank owns contracts and
-transport; Candystore owns durable history/read models; PJangler owns
-project/bootstrap identity; Holocene renders and submits high-level commands.
+transport; Candystore is append-only audit/projection only; PJangler owns
+project/bootstrap identity; Holocene only renders and invokes high-level actions.
 
-This repository contains the implemented Lifecycle policy-client seam inside
-the proven `skill/` package. That skill is being promoted into a formal,
+This repository contains the implemented Lifecycle policy-client seam and a
+bounded durable JetStream obligation actor inside the proven `skill/` package.
+That skill is being promoted into a formal,
 reusable 33GOD **component**
 (packaged skill + generic agent definition + fanout adapters; MCP proxy + heartbeat are
-**deferred** per the Rule of Three). As of this scan, the repo contains the **vision**
+**deferred** per the Rule of Three). The 2026-07-16 initial scan is historical;
+current code now accompanies the **vision**
 ([BRAINDUMP.md](../BRAINDUMP.md)), the **doctrine** ([PILLARS.md](../PILLARS.md)), a
 **pjangler CommonProject scaffold**, and the **planning artifacts**
 ([brief](../_bmad-output/planning-artifacts/product-brief.md) ·
@@ -31,9 +33,13 @@ reusable 33GOD **component**
 fanout remain future work.
 
 The standalone Lifecycle authority and Bloodbank contracts are implemented.
-Momo reads Candystore's projection and publishes canonical Bloodbank commands;
-direct provider transitions are migration-only utilities, not a state-write
-contract.
+Momo reads Candystore's projection and publishes canonical Bloodbank commands.
+Its named durable consumer validates an exact broker-delivered invocation,
+executes a pinned skill adapter, writes and hashes a real artifact, publishes
+completion evidence with the CloudEvent ID as `Nats-Msg-Id`, and acknowledges
+only after PubAck. Completion ID/time are derived from the invocation so an
+ACK-ambiguous redelivery republishes the same event. Direct provider
+transitions are migration-only utilities, not a state-write contract.
 
 > Momo is the **interactive policy client** alongside the **autonomous Hermes PM**. Both
 > share the same authoritative Lifecycle client contract, Candystore read projection,
@@ -76,6 +82,10 @@ From [BRAINDUMP.md](../BRAINDUMP.md), Momo is simultaneously:
 - **Lifecycle client** — preserve lifecycle ID, spec/state versions, source-event
   causal lineage, frontier, obligation occurrence identity, blockers, grants,
   and command outcomes; never write truth locally.
+- **Durable obligation execution** — consume only the canonical named-durable
+  invocation, execute the exact catalogued skill resource, publish
+  artifact-backed evidence idempotently, and retain the delivery unacked when
+  publication or ACK confirmation cannot be proven.
 - **Delegation, not authorship** — orchestrates implementation by dispatching every code
   change to subagents; Momo itself stays out of the editor.
 - **Decision function** — ranks candidate actions by walking [The Pillars](../PILLARS.md)
@@ -89,9 +99,11 @@ From [BRAINDUMP.md](../BRAINDUMP.md), Momo is simultaneously:
 
 ## Architecture Highlights
 
-- **Lifecycle client MCP** exposes coarse snapshot/frontier, observation/evidence,
-  decision, and intent verbs. State-changing commands route through Bloodbank to
-  Lifecycle, not directly to Plane/Trello.
+- **Current client and actor** expose the tested snapshot/frontier,
+  observation/evidence, decision, intent, and durable obligation-execution
+  seams. State-changing commands route through Bloodbank to Lifecycle, not
+  directly to Plane/Trello. A future MCP is only a thin facade over these
+  high-level seams.
 - **Generic agent spec → per-CLI adapters** (Hermes, Codex, OpenCode, Kimi, Gemini,
   Claude). The Hermes fleet is the reference: personality via a *soul* file, role via a
   *role* file — the generic spec is what an adapter ports *into* those.
@@ -128,18 +140,20 @@ mise tasks                      # list available tasks
 ### Key Commands
 
 - **Install:** `mise install`
-- **Dev:** `python3 skill/scripts/lifecycle_client.py --help`
+- **Dev:** `python3 skill/scripts/lifecycle_client.py --help` · `python3 skill/scripts/obligation_worker.py --help`
 - **Build:** *(none yet)*
 - **Version:** `mise run version` · `mise run version:bump[-minor|-major]` · `mise run version:check`
 - **Test:** `mise run lint && mise run test`
 
 ## Repository Structure
 
-A single `pjangler` CommonProject repo. The **signal** is a small set of hand-authored
-docs + scaffold config; the bulk of the file count (~850 files) is **framework
+A single `pjangler` CommonProject repo. The current **signal** includes the
+repo-owned `skill/` runtime, tests, docs, and scaffold config; the bulk of the
+file count is **framework
 scaffolding** fanned out from the 33GOD ecosystem (BMAD skills, per-CLI agent configs) and
-is *not* Momo's own code. See [source-tree-analysis.md](./source-tree-analysis.md) for the
-full annotated tree and the signal-vs-noise breakdown.
+is *not* Momo's own code. See the explicitly historical
+[source-tree-analysis.md](./source-tree-analysis.md) for the initial scan-era
+signal-vs-noise breakdown.
 
 ## Documentation Map
 
@@ -152,10 +166,12 @@ For detailed information, see:
 - [../BRAINDUMP.md](../BRAINDUMP.md) — Source vision (product definition)
 - [../PILLARS.md](../PILLARS.md) — The decision function (operating doctrine)
 
-The Lifecycle prerequisite and Momo client conformance slice are implemented.
+The Lifecycle prerequisite, Momo client conformance slice, and bounded durable
+obligation actor are implemented.
 The v3 epics still govern future packaging, WIP-lock, autonomy, and demo work.
 
 ---
 
 _Generated using BMAD Method `document-project`, reconciled by Correct Course,
-and updated on 2026-07-18 for the implemented Lifecycle client slice._
+and updated on 2026-07-19 for the implemented Lifecycle client and durable
+obligation actor._

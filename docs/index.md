@@ -3,8 +3,8 @@
 **Type:** Monolith (pjangler CommonProject) — agentic PM/EM component
 **Primary Language (decided):** Python3-stdlib + Bash (proven policy glue, with corrected Lifecycle seam) · TypeScript/Node (component wrapper, toad norm)
 **Architecture:** Modular, adapter-based, provider-agnostic
-**Status:** Implemented Lifecycle policy-client slice; broader promotion remains future work
-**Last Updated:** 2026-07-18
+**Status:** Implemented Lifecycle policy-client and durable obligation-actor slices; broader promotion remains future work
+**Last Updated:** 2026-07-19
 **Forward plan:** [product-brief](../_bmad-output/planning-artifacts/product-brief.md) · [PRD](../_bmad-output/planning-artifacts/PRD.md) · [epics](../_bmad-output/planning-artifacts/epics.md)
 
 ## Project Overview
@@ -17,7 +17,8 @@ submits auditable intent. It never calculates or writes lifecycle truth.
 This repo is the **promotion target**: the **fully-working skill** at `~/code/33GOD/skills/momo`
 is being formalized into a reusable, versioned component (packaged skill + generic agent spec
 + fanout adapters; MCP proxy and heartbeat **deferred**). The repo now contains
-the tested Lifecycle policy client under `skill/scripts/lifecycle_client.py`.
+the tested Lifecycle policy client and named-durable execution worker under
+`skill/scripts/`.
 
 The separate Lifecycle authority and canonical Bloodbank contracts are
 implemented. Momo's client reads the Candystore projection and emits only
@@ -27,11 +28,11 @@ migration utilities and are not invoked by the authoritative workflow.
 ## Quick Reference
 
 - **Repository Type:** Monolith (single `pjangler` CommonProject repo)
-- **Entry Point:** `skill/scripts/lifecycle_client.py` and `mise.toml`
+- **Entry Points:** `skill/scripts/lifecycle_client.py`, `skill/scripts/obligation_worker.py`, and `mise.toml`
 - **Architecture Pattern:** Lifecycle client/facade + Adapter (per CLI/ticket-board provider) + Strategy/Factory + scheduled actor-work policy loop
 - **Ticket Board:** Plane, workspace `33god`, identifier `MOMO` (`state: planned`)
 - **Memory:** Hindsight, one bank per project (`momo` bank)
-- **Events:** Bloodbank (NATS/dapr) — decision provenance tagged against The Pillars
+- **Events:** Bloodbank (NATS/Dapr/JetStream) — canonical schemas/transport, durable invocation delivery, and completion PubAck/dedup
 - **Secrets:** 1Password via `op inject -i .env.op > .env`
 - **Versioning:** git tags (mise-versioning)
 
@@ -46,8 +47,8 @@ migration utilities and are not invoked by the authoritative workflow.
 
 ### Deferred surfaces
 
-The policy client is implemented and tested. The following broader product
-surfaces remain deferred:
+The policy client and bounded durable obligation actor are implemented and
+tested. The following broader product surfaces remain deferred:
 
 - Component Inventory — *(planned components are catalogued in [architecture.md §4](./architecture.md#4-component-breakdown))*
 - API Contracts — *(the intended MCP tool surface is described in [architecture.md §4.2](./architecture.md#42-mcp-server-provider-proxy)) — To be generated when the MCP server is built*
@@ -61,8 +62,11 @@ surfaces remain deferred:
 
 ## Existing Documentation
 
-Before this scan, the project had no `docs/` content. The hand-authored product docs are
-`BRAINDUMP.md` and `PILLARS.md` at the repo root (linked above).
+The 2026-07-16 `project-scan-report.json` and `source-tree-analysis.md` describe
+the initial pre-runtime scan and are retained as explicitly historical
+artifacts. Current runtime truth lives in `skill/`, `tests/`, and the four
+current docs linked above. The hand-authored product docs remain `BRAINDUMP.md`
+and `PILLARS.md` at the repo root.
 
 ## Getting Started
 
@@ -84,6 +88,7 @@ mise tasks                     # list runnable tasks
 
 ```bash
 python3 skill/scripts/lifecycle_client.py --help
+python3 skill/scripts/obligation_worker.py --help
 ```
 
 ### Run Tests
@@ -97,7 +102,8 @@ mise run test
 
 This documentation was generated to let AI agents understand and extend Momo. Because the
 the broader promotion remains incomplete, distinguish the implemented client
-under `skill/` from future agent fanout, heartbeat, and MCP surfaces.
+and durable actor under `skill/` from future agent fanout, heartbeat, and MCP
+surfaces.
 
 ### When Planning New Features / Starting the Build
 
@@ -120,10 +126,11 @@ The corrected build-planning chain is complete (2026-07-18): see
 [product-brief](../_bmad-output/planning-artifacts/product-brief.md),
 [PRD](../_bmad-output/planning-artifacts/PRD.md), and
 [epics](../_bmad-output/planning-artifacts/epics.md). The conforming Lifecycle
-client seam is now implemented; future work starts with packaging/fanout and
-autonomy only after the shared WIP-lock and deployment gates are proven.
+client seam and durable obligation actor are now implemented; future work
+starts with packaging/fanout and autonomy only after the shared WIP-lock and
+deployment gates are proven.
 
 ---
 
 _Documentation generated by BMAD Method `document-project` and reconciled by
-Correct Course on 2026-07-18._
+Correct Course through the durable actor update on 2026-07-19._

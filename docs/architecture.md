@@ -1,9 +1,9 @@
 # Momo - Architecture
 
-**Date:** 2026-07-18
-**Status:** Lifecycle policy-client slice implemented; packaging, fanout,
-heartbeat, and MCP remain future work. This document separates current behavior
-from that future scope.
+**Date:** 2026-07-19
+**Status:** Lifecycle policy-client and durable obligation-actor slices
+implemented; packaging, fanout, heartbeat, and MCP remain future work. This
+document separates current behavior from that future scope.
 
 > **Reality update (2026-07-16, post-research):** A 4-investigator grounding pass corrected
 > three earlier assumptions in this doc. (1) The working Momo is a **fully functional skill**
@@ -19,7 +19,7 @@ from that future scope.
 > **Approved boundary correction (2026-07-18):** Momo is an intelligent PM/EM
 > process-manager, not the lifecycle state machine. The separate headless
 > Lifecycle component owns versioned spec/state, deterministic reconciliation,
-> legal frontier, obligations, and capability validation. The service is not
+> legal frontier, obligations, and capability validation. The service is
 > implemented with canonical Bloodbank contracts. Direct `tp`/Trello
 > transitions described below are legacy migration paths, not the current
 > authoritative contract.
@@ -39,10 +39,10 @@ project without surgery* (Pillar #3) and *installed into any agent CLI via adapt
 is the **interactive twin** of the autonomous **Hermes PM**; both share one Plane board and
 one Hindsight bank per project.
 
-**Today** the *repo* contains only vision + doctrine + scaffold — but the *skill* at
-`~/code/33GOD/skills/momo` is a fully working PM/EM orchestrator. **The build** is the
-**promotion** of that proven skill into a liftable, versioned component (the parts below),
-maximizing reuse rather than rebuilding.
+**Today** the repo contains the promoted skill, a tested Lifecycle client, and a
+bounded durable JetStream obligation actor in addition to its vision, doctrine,
+and scaffold. Broader component packaging remains a promotion of this working
+surface, maximizing reuse rather than rebuilding.
 
 ## 2. Architectural North Star (from BRAINDUMP)
 
@@ -56,13 +56,13 @@ maximizing reuse rather than rebuilding.
 
 ## 3. Current Reality vs. Target
 
-| Dimension | Current (2026-07-18) | Target |
+| Dimension | Current (2026-07-19) | Target |
 |---|---|---|
-| Form | pjangler CommonProject scaffold + 2 docs | Formal 33GOD component |
-| Product code | Tested `skill/scripts/lifecycle_client.py` client seam | **Future:** minimal `momo install`; **deferred/gated:** generic spec + fanout (E4), heartbeat (E5), MCP proxy (E6) |
-| Working impl | fully-working skill at `~/code/33GOD/skills/momo` | promoted & generalized into this repo |
+| Form | pjangler CommonProject + promoted skill + tested worker/client | Formal 33GOD component |
+| Product code | `skill/scripts/lifecycle_client.py`, `skill/scripts/obligation_worker.py`, pinned adapter catalog/resources, and tests | **Future:** minimal `momo install`; **deferred/gated:** generic spec + fanout (E4), heartbeat (E5), MCP proxy (E6) |
+| Working impl | repo-owned `skill/` package, mirrored into the 33GOD root skill | generalized component packaging and fanout |
 | Ticket/lifecycle | Candystore projection → legal frontier/obligations → canonical Bloodbank commands | Broader packaged client/fanout; provider board remains a projection only |
-| Runtime driver | none in this repo | manual or heartbeat Lifecycle client; no local reconciler |
+| Runtime driver | named durable JetStream pull consumer executes one canonical obligation invocation | manual or heartbeat policy selection; no local reconciler |
 | Memory | (inherits current Hermes PM bank) | Hindsight, one bank per project |
 | Decisions | doctrine written (PILLARS.md) | doctrine *executed* + logged to Bloodbank |
 
@@ -70,7 +70,7 @@ maximizing reuse rather than rebuilding.
 
 Momo-the-component is six liftable parts. Status reflects this scan.
 
-### 4.1 Skill package  ·  status: 🟢 WORKING at `33GOD/skills/momo` — lift into repo
+### 4.1 Skill package and durable obligation actor  ·  status: 🟢 IMPLEMENTED
 
 The precise workflows that are Momo's job description: inspect authoritative
 work → apply business policy → orchestrate a ticket (delegating all code) →
@@ -78,6 +78,18 @@ review → submit intent/evidence → record decisions. The policy/delegation lo
 implemented in this repo's `skill/` package (SKILL.md, references, templates,
 and scripts). `scripts/lifecycle_client.py` now supplies the current
 read/selection/command seam; provider transition helpers remain migration-only.
+
+`scripts/obligation_worker.py` binds a named JetStream durable to the canonical
+invocation subject, validates target and occurrence identity, resolves an exact
+catalogued skill resource, executes the bounded adapter, and hashes the written
+artifact. It builds completion identity and event time from the immutable
+invocation, publishes with `Nats-Msg-Id` equal to the exact completion
+CloudEvent ID, requires a completion PubAck, and only then confirms the
+invocation ACK and writes a receipt. ACK ambiguity therefore reconstructs the
+same completion event on redelivery; validation, execution, publication, or ACK
+confirmation failure leaves the delivery unacked and writes no positive
+receipt. This actor performs legal work and emits evidence. It never decides or
+writes Lifecycle truth.
 
 ### 4.2 MCP server (provider proxy)  ·  status: ⛔ DEFERRED (Rule of Three — 2nd consumer)
 
@@ -200,8 +212,14 @@ that action legal or mutates state.
 
 Momo records consequential judgment calls as Bloodbank decision events tagged
 against the pillars. Bloodbank owns canonical schemas and NATS/Dapr transport;
-Candystore persists history/read models. Neither event publication nor durable
-history transfers Lifecycle's state authority to Momo.
+Candystore is append-only audit/projection only. Neither event publication nor
+durable history transfers Lifecycle's state authority to Momo.
+
+Bloodbank also owns the actor's JetStream subjects, schemas, duplicate window,
+and PubAck semantics. Momo supplies the canonical completion event ID as the
+JetStream message ID and treats a PubAck as transport evidence, not lifecycle
+acceptance. Lifecycle independently evaluates the event; Candystore only
+audits/projects it.
 
 ### Provider agnosticism
 
@@ -246,8 +264,8 @@ PJangler (project/bootstrap identity) ──> Lifecycle binding
 Bloodbank (schemas + transport) <──────> Lifecycle commands/events
 Lifecycle (spec/state/reconcile/frontier/obligations/capabilities)
         ├──> Candystore (durable history/read models)
-        ├──> Momo/Hermes (policy clients: select, delegate, review, intent)
-        ├──> Holocene (renderer/high-level command client)
+        ├──> Momo/Hermes (policy clients/actors: select, execute legal work, evidence)
+        ├──> Holocene (renderer/high-level action invoker)
         └──> Plane/Trello (provider projections via adapters)
 Hindsight (memory) <──────────────────── Momo/Hermes shared project bank
 Toad (project custodian) ─────────────── births/audits; fanout reuse
@@ -263,11 +281,13 @@ is packaging & seams, sequenced by shortest-path-to-demo — full backlog in
 
 1. **Implemented dependency — Lifecycle:** standalone authority, canonical
    schemas/outbox, spec/frontier/obligation/capability and command seams.
-2. **Implemented E0 slice:** current Candystore projection reads, canonical
-   obligation skill resolution, and versioned Lifecycle commands through
-   Bloodbank. PJangler binding automation remains future packaging work.
-3. **E1 — Promote the policy skill:** preserve pillars, delegation, review, and
-   decision provenance while removing direct state authority.
+2. **Implemented E0/E1 slices:** current Candystore projection reads, canonical
+   obligation skill resolution, versioned Lifecycle commands through
+   Bloodbank, and a durable artifact-producing obligation actor with
+   retry-stable completion publication and ACK ordering. PJangler binding
+   automation remains future packaging work.
+3. **Remaining promotion:** package and fan out the working policy/actor skill
+   while preserving pillars, delegation, review, and decision provenance.
 4. **E2 — Install + target demo:** gate doctor on Lifecycle, submit versioned
    intent/evidence, and prove no direct provider transition.
 5. **E3–E4:** package and fan out the corrected client contract.
@@ -279,11 +299,18 @@ is packaging & seams, sequenced by shortest-path-to-demo — full backlog in
 - Current tests contract-check the Momo client against Lifecycle projection and
   command versions, reject stale/illegal/non-frontier work and invalid grants,
   preserve canonical skill references, keep rationale outside commands, and
-  prove there is no direct mutation transport or local truth store. Future
-  packaging should add provider-projection golden tests and shared-lock tests.
+  prove there is no direct mutation transport or local truth store. Worker
+  tests cover exact delivery validation, resource and artifact hashes,
+  canonical `Nats-Msg-Id`, retry-stable completion identity/time,
+  PubAck-before-ACK ordering, and unacked/no-receipt failures. Future packaging
+  should add provider-projection golden tests and shared-lock tests.
 
 ## 12. Deployment (intended)
 
+- **Current bounded actor:** run `skill/scripts/obligation_worker.py` with a
+  named durable, exact invocation expectation, promoted resource catalog,
+  current-run evidence package, and isolated report/receipt paths. It consumes
+  one invocation and exits after confirmed completion publication and ACK.
 - **Manual gateways:** Telegram, CLI, web, or Bloodbank message feed the Momo
   client; Lifecycle remains the state writer.
 - **Autonomous:** a **systemd** user interval unit (mirroring the Hermes fleet) driving the
@@ -293,4 +320,5 @@ is packaging & seams, sequenced by shortest-path-to-demo — full backlog in
 ---
 
 _Generated using BMAD Method `document-project`, reconciled through Correct
-Course, and updated on 2026-07-18 for the implemented Lifecycle client slice._
+Course, and updated on 2026-07-19 for the implemented Lifecycle client and
+durable obligation-actor slices._
