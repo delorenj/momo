@@ -28,7 +28,7 @@ run = "python -m pytest tests -v"
 
 [tasks.lint]
 description = "Lint the Momo policy client and tests"
-run = "ruff check skill/scripts/lifecycle_client.py tests"
+run = "ruff check skill/scripts/lifecycle_client.py skill/scripts/obligation_worker.py tests"
 
 [[watch_files]]
 patterns = ["AGENTS.md"]
