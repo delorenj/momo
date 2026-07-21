@@ -1,0 +1,90 @@
+spec_version: 1.0.0
+kind: momo.ticket-lifecycle
+schema: ./lifecycle.schema.json
+# ============================================================================
+# The ONE canonical ticket-lifecycle state machine for every pjangler
+# CommonProject repo — the SSOT promoted out of the per-repo
+# _bmad/custom/workflows/ticket-lifecycle/workflow.yaml copies (which drift).
+#
+# This file speaks PHASES + the 5 normalized `tp` bands only. Provider column
+# LABELS are NOT here — they live in the `tp` adapter's normalized-state map
+# (the Gang-of-Four Strategy seam). Per-repo differences are DATA in the
+# adapter, never a fork of this machine.
+#
+# Consumers pin the major line they speak: `spec: momo/lifecycle/lifecycle.v1`.
+# A per-repo workflow.yaml becomes a thin knobs-only overlay (Decorator), never
+# a redefinition. See ./README.md for the full rationale.
+# ============================================================================
+
+# The 9 semantic phases and the coarse tp band each maps to. Three unstarted
+# phases (triage/refining/ready) collapse to the single `unstarted` band and two
+# (review/qa) to `in_review`, so a board with one "To Do"/"Review" column and a
+# board with explicit columns both satisfy this spec — Momo/Hermes track the
+# fine phase internally via comments + evidence + decision events.
+states:
+  - phase: backlog
+    tp_band: backlog
+    terminal: false            # operator queue; a stop signal, not a work lane
+  - phase: triage
+    tp_band: unstarted
+    staleness_minutes: 10
+  - phase: refining
+    tp_band: unstarted
+    staleness_minutes: 30
+  - phase: ready
+    tp_band: unstarted         # AC 4/4; eligible to pull under WIP=1
+  - phase: in_progress
+    tp_band: started
+    staleness_minutes: 120     # exactly one implementer (WIP=1)
+  - phase: review
+    tp_band: in_review
+    staleness_minutes: 15      # spec-compliance + quality gates, fresh reviewer
+  - phase: qa
+    tp_band: in_review
+    staleness_minutes: 60      # adversarial review + close gate; retryable
+  - phase: done
+    tp_band: completed
+    terminal: true
+  - phase: blocked
+    terminal: true             # loop-terminal; operator-reopenable
+
+transitions:
+  - {from: backlog,     to: triage,      guard: picked_up}
+  - {from: triage,      to: ready,       guard: ac_rubric_pass}
+  - {from: triage,      to: refining,    guard: ac_rubric_fail}
+  - {from: refining,    to: ready,       guard: ac_rubric_pass}
+  - {from: refining,    to: blocked,     guard: ac_still_insufficient, on_fail: blocked_funnel}
+  - {from: ready,       to: in_progress, guard: wip_slot_free}                              # worker spawned
+  - {from: in_progress, to: review,      guard: worker_done, precondition: set_board_review} # board state BEFORE gate
+  - {from: in_progress, to: blocked,     guard: ac_ambiguity, on_fail: blocked_funnel}
+  - {from: review,      to: qa,          guard: gates_pass}
+  - {from: review,      to: in_progress, guard: gate_fail}                                  # retry
+  - {from: qa,          to: done,        guard: all_ac_pass}
+  - {from: qa,          to: in_progress, guard: qa_fail_retries_left}
+  - {from: qa,          to: blocked,     guard: qa_retries_exhausted, on_fail: blocked_funnel}
+  - {from: blocked,     to: backlog,     guard: operator_reopen}                            # re-openable
+
+# Tunable guards, promoted verbatim from the per-repo workflow.yaml and made
+# explicit. A per-repo overlay may Decorate these (e.g. widen a staleness or
+# max_retries) but never remove a guard.
+guards:
+  ac_rubric:                     # triage/refining -> ready
+    require_non_empty: true
+    require_testable_assertions: true
+    require_enumerated_items: true
+    require_fr_coverage: true
+    short_circuit: false         # all four evaluated, no early-out
+  qa:                            # qa -> done
+    max_retries: 3
+    reverify_failed_only: true   # on retry re-verify only previously-failed AC
+  reviewer_independence: true    # reviewer != implementer, always (non-negotiable)
+  wip: 1                         # one active implementer, shared with Hermes via the flock
+
+# Bloodbank event wiring, promoted from workflow.yaml unchanged. Envelope
+# identity (source/producer/actor) follows the fleet scheme
+# (hermes://agent/<agent_id>); see momo/adapter/record-decision.fix.md — it is
+# NOT re-specified here.
+events:
+  topic_prefix: ticket
+  include_project_id: true
+  include_ticket_id: true

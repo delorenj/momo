@@ -20,7 +20,7 @@ pointer when the spec is created; check it off here. A copy that drifts is a bug
 | Momo BRAINDUMP | `momo/BRAINDUMP.md` → Pillars section | ✅ wired |
 | Vault Karpathy wiki | `DeLoDocs/wiki/operating-doctrine/pillars.md` | ✅ wired |
 | Hindsight (`momo` bank) | retained under `conventions` | ✅ wired |
-| Momo agent spec/soul | *(spec not created yet — wire on creation)* | ⬜ pending |
+| Momo agent spec/soul | `momo/spec/momo-agent.spec.yaml` → `pillars_pointer.doctrine` (references this file, not copied) | ✅ wired |
 | Toad agent soul | `~/code/toad/…` *(soul not created yet — wire on creation)* | ⬜ pending |
 | Future agents | each new soul/spec | ⬜ per-agent |
 
@@ -98,8 +98,9 @@ reuse. The rule that resolves it:
 >   abstraction is grounded in reality instead of a guess.)
 
 **Momo itself is this rule made flesh.** It started as a concrete skill
-(`~/code/skillex/all-skills/momo`), got used, got proven, and is *now* being
-promoted to a real, reusable component — earned, not guessed.
+(`~/code/skillex/all-skills/momo`, now retired), got used, got proven, and *has
+now been promoted* to a real, reusable component at `momo/skill/` (the SSOT) —
+earned, not guessed.
 
 ---
 

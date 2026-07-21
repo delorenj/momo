@@ -34,7 +34,7 @@ Also mirrored to the vault Karpathy wiki (`wiki/operating-doctrine/pillars.md`).
 
 ## Components
 
-Current functionality is exactly how I want it, and it's currently all wrapped in a single skill (~/code/skillex/all-skills/momo). So this is going to be the promotion of this skill into a formal component. We're also going to expand it from just a skill to a proper package that includes not only the skill(s), but also a custom MCP server that provides connectivity to Plane and Trello, an agent definition, and a way to install a heartbeat interval service, and a set of agent adapters to enable integration with any agentic platform or agent CLI.
+Current functionality is exactly how I want it. It started as a single skill (originally `~/code/skillex/all-skills/momo`, now **retired**) and has since been **promoted** to the SSOT at `momo/skill/`. This component is the promotion of that skill into a formal package. We're also going to expand it from just a skill to a proper package that includes not only the skill(s), but also a custom MCP server that provides connectivity to Plane and Trello, an agent definition, and a way to install a heartbeat interval service, and a set of agent adapters to enable integration with any agentic platform or agent CLI.
 
 ### MCP Server
 

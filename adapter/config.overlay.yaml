@@ -1,0 +1,54 @@
+# ============================================================================
+# Honcho / per-agent-memory NEUTRALIZATION overlay.
+#
+# Applied by the adapter to:   <role_dir>/runtime/config.yaml
+# (== the profile config; profile home is symlinked to ./runtime/).
+#
+# WHY it wins: hermes_cli/config.py loads the profile config and
+#   config = _deep_merge(config, user_config)   (config.py:7228)
+# where user_config is THIS runtime config. _deep_merge (config.py:6509)
+# recurses into dict values and the override wins at the leaf, and REPLACES
+# list values. So `memory: {provider: ""}` overrides only that leaf of the
+# fleet-default `memory:` block (~/.hermes/config.yaml:375, provider: honcho),
+# keeping the other memory keys; and `agent.disabled_toolsets: [memory]`
+# replaces the default `[]`.
+#
+# VERIFIED against hermes source:
+#  - memory.provider: plugins/memory/__init__.py:_get_active_memory_provider()
+#       returns `cfg_get(config,"memory","provider") or None` — an empty string
+#       is falsy -> None -> NO external provider loaded (honcho detached).
+#  - memory_enabled / user_profile_enabled: config.yaml `memory:` block
+#       (cli-config.yaml.example:562) gate MEMORY.md / USER.md injection+writes.
+#  - agent.disabled_toolsets: run_agent.py:432 / model_tools.py:281 exclude the
+#       named toolset's tools; `memory` is the persistent-memory toolset
+#       (cli-config.yaml.example:942, present in platform_toolsets.cli/slack).
+#
+# NOTE: _deep_merge ignores a `None` override of a dict default, so each block
+# below MUST carry a real sub-value (never `memory:` with an empty body).
+# ============================================================================
+
+# 1) Detach honcho + silence the per-identity file memory (belt).
+memory:
+  provider: ""              # was: honcho  -> None -> no external memory provider
+  memory_enabled: false     # stop injecting/writing runtime/memories/MEMORY.md
+  user_profile_enabled: false  # stop injecting/writing runtime/memories/USER.md
+
+# 2) Remove the memory TOOL entirely (suspenders) so the agent cannot write a
+#    per-identity store that would split-brain the shared Hindsight bank.
+agent:
+  disabled_toolsets:
+    - memory
+
+# 3) Companion POSITIVE wiring — Hindsight is NOT auto-recalled in Hermes
+#    (that passive UserPromptSubmit hook is a Claude-harness thing). Add a
+#    session-start recall against the per-project bank so neutralizing honcho
+#    does not leave the twin memoryless. Bank = git-common-dir basename
+#    (worktree-safe). The `hindsight` skill is already present via
+#    skills.external_dirs -> skillex global (.../skill-sets/global/hindsight).
+hooks:
+  on_session_start:
+    - command: >-
+        BANK=$( { d=$(git rev-parse --git-common-dir 2>/dev/null) &&
+        basename "$(dirname "$(readlink -f "$d")")"; } || echo general );
+        hindsight memory recall "$BANK" "session start context" --budget mid
+      timeout: 10

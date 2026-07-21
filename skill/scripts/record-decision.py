@@ -86,6 +86,13 @@ def main() -> int:
                     help="carrier CLI in actor.cli (default: env MOMO_CLI or 'claude')")
     ap.add_argument("--provider", default=os.environ.get("MOMO_PROVIDER", "anthropic"),
                     help="carrier provider in actor.provider (default: env MOMO_PROVIDER or 'anthropic')")
+    # Fleet agent_id for the ENVELOPE carrier fields (source/producer/actor), so a
+    # Momo decision self-attributes to its distinct fleet identity (<slug>-<actor>,
+    # e.g. holocene-momo) matching the on-disk scheme hermes://agent/<agent_id>.
+    # The stable human signature stays in data.decided_by (= --actor, "momo").
+    ap.add_argument("--agent-id", dest="agent_id_override",
+                    default=os.environ.get("MOMO_AGENT_ID"),
+                    help="fleet agent_id for envelope carrier fields (default: env MOMO_AGENT_ID or <slug>-<actor>)")
     args = ap.parse_args()
 
     start = pathlib.Path(args.root) if args.root else pathlib.Path.cwd()
@@ -105,6 +112,13 @@ def main() -> int:
         print("record-decision: could not resolve repo slug from .project.json", file=sys.stderr)
         return 2
 
+    # Momo's DISTINCT fleet identity — the twin of <slug>-pm (never <slug>-pm
+    # itself; masquerading as Hermes would break attributability). Feeds the
+    # envelope carrier fields below to match the fleet scheme on disk.
+    agent_id = args.agent_id_override or (
+        args.actor if "-" in args.actor else f"{slug}-{args.actor}"
+    )
+
     data: dict[str, object] = {
         "repo": slug,
         "decision": args.decision,
@@ -120,16 +134,16 @@ def main() -> int:
     env = {
         "specversion": "1.0",
         "id": str(uuid.uuid4()),
-        "source": f"urn:33god:agent:{args.actor}:{slug}",
+        "source": f"hermes://agent/{agent_id}",
         "type": CE_TYPE,
         "subject": NATS_SUBJECT,
         "time": now_iso(),
         "datacontenttype": "application/json",
         "kind": "event",
         "domain": "repo",
-        "producer": f"agent:{args.actor}",
+        "producer": f"hermes-agent:{agent_id}",
         "service": slug,
-        "actor": {"type": "agent_cli", "agent_id": args.actor, "cli": args.cli, "provider": args.provider},
+        "actor": {"type": "agent_cli", "agent_id": agent_id, "cli": args.cli, "provider": args.provider},
         "ordering_key": f"repo:{slug}",
         "correlationid": args.correlation_id or str(uuid.uuid4()),
         "causationid": args.causation_id,

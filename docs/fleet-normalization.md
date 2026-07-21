@@ -23,8 +23,31 @@
 **Safety confirmed (why pure-local degit is safe fleet-wide):** `checkpoint.sh:15` is `[[ -d .git || -f .git ]] || exit 0` and heartbeat's `maybe_checkpoint()` is best-effort ("never fails the heartbeat"). So after degit, checkpoint.sh is a clean exit-0 no-op and the autonomous reconcile tick is untouched — degitting even the 4 heartbeat agents (candystore, pjangler, james-brennan, slowburns) cannot break their loop. Degit also *fixes* the `hermes-agent-pm-checkpoint` failure (no more `git push` on a diverged runtime).
 
 ### Delivered scripts (in `hermes-agent-template/scripts/`)
-- **`degit-runtime.sh`** — per-repo pure-local degit (item 1b). Run from a repo root (or `--root`). Dry-run default, `--apply`, `--force` (discard unpushed local-only checkpoint history). Validated dry-run against all 3 tracking variants: gitignored+own-.git (candystore), gitlink submodule (jacksnaps, 361 unpushed → courtesy push first), no-project-git (pjangler).
+- **`degit-runtime.sh`** — per-repo pure-local degit (item 1b). Run from a repo root (or `--root`). Dry-run default, `--apply`, `--force` (discard unpushed local-only checkpoint history). `-f` on the index removal handles staged-but-uncommitted submodules.
 - **`fleet-prune-debris.sh`** — fleet-wide debris prune: removes disabled stale units + `.bak` cruft, retires now-dead checkpoint units for already-pure-local agents, reports the rest (failed/running-redundant) as MANUAL. Dry-run default.
+
+### Execution status (2026-07-21) — item 1b + debris cleanup DONE
+- **All 22 PM runtimes are pure-local** (verified: gitlink=0, ignored=Y, no runtime `.git`, across all scattered repo roots).
+- **0 checkpoint units remain** — all retired; the `hermes-agent-pm-checkpoint` failure is gone.
+- Pruned: 3 disabled stale gateways, 3 `.bak-tiller` files.
+- **All live daemons untouched** — 21 consumers / 20 gateways active (the only 3 down — keepy-money consumer, bloodbank + hermes-agent gateways — were already dead pre-change). Remaining failed: 2 `delonet-company-reporter` (non-PM archetype, out of scope).
+- Project-repo degit changes are committed locally per repo where clean (sidepiece); the rest are staged/unstaged in each project repo for the owner to commit. Working trees, `.env`, `state.db` all preserved.
+- **Item 1a (rename) deferred** at user request (needs interactive telegram/BotFather work).
+
+### Item 1c (templatize) + Task 4 (unification) — foundations built (2026-07-21)
+**Task 3 (templatize) — pack live + tool ready:**
+- Built `skillex/packs/hermes-base/0.18.2/` — 18 pristine base skills (7.0M), MANIFEST regenerated from the copy, guard confirms **byte-parity with upstream**. Inert until wired.
+- `hermes-agent-template/scripts/hermes-runtime-templatize.sh` (dry-run default): WIRE (append pack to `config.yaml external_dirs`, additive/comment-safe) + RECONCILE (rm byte-identical base copies; **patch-capture + keep** diverged; leave overlay-adds). Validated on voxxy: 5 identical / 12 diverged / 11 overlay.
+- `hermes-base-guard.sh` (in the pack) forbids in-place base edits — the exact hole that forked 14/18 dirs.
+- **Verified precedence caveat:** local overlay wins the prompt *index*, but `skill_view` *refuses* a divergent local↔pack name collision ("Ambiguous skill name") — so base and overlay must end name-disjoint, which removing the identical copies achieves.
+
+**Task 4 (unification) — SSOT foundation placed (new files in `momo/`):**
+- `momo/spec/momo-agent.spec.yaml` — the identity-agnostic behavioral SSOT (roles, charter, prime directives, pillars/lifecycle pointers, memory doctrine, `<slug>-momo` decision identity).
+- `momo/adapter/{render_agent.py, config.overlay.yaml, RENDER_MAP.md, record-decision.fix.md}` — the Hermes adapter (renders `role.yaml`/`SOUL.md` from spec×identity via the existing copier template; honcho-neutralization overlay verified against hermes source).
+- `momo/lifecycle/{lifecycle.v1.yaml, CHANGELOG.md, README.md}` — the one versioned Lifecycle state machine (9 phases → 5 tp bands; per-repo labels move to the `tp` Strategy).
+- **Applied safe edits:** `record-decision.py` urn fix (`hermes://agent/<slug>-momo`, `decided_by=momo` preserved — verified); PILLARS wiring row ticked (spec references `PILLARS.md`, not copied); stale `skillex/all-skills/momo` refs fixed in BRAINDUMP + PILLARS.
+
+**Staged (risky live-fleet — pilot + confirm before rollout):** wire pack to 22 configs → reconcile `--apply` (+ triage 12 diverged) · deploy the adapter (render + honcho-neutralize live agents) · repoint the lifecycle mirror (`board-clearing-loop.md`, `SKILL.md`) · per-repo `workflow.yaml` migration · sync `skills/momo` ← SSOT.
 
 ---
 
