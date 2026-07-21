@@ -49,6 +49,11 @@
 
 **Staged (risky live-fleet — pilot + confirm before rollout):** wire pack to 22 configs → reconcile `--apply` (+ triage 12 diverged) · deploy the adapter (render + honcho-neutralize live agents) · repoint the lifecycle mirror (`board-clearing-loop.md`, `SKILL.md`) · per-repo `workflow.yaml` migration · sync `skills/momo` ← SSOT.
 
+**Templatize pilot findings (2026-07-21):**
+- **The rollout needs per-agent prep — there is no clean one-shot agent.** The 19 new-gen agents have `external_dirs` but carry **diverged** base skills (voxxy: 12) that must be triaged (discard-drift / promote-to-pack / rename-overlay) before wiring; the 3 bare agents (candybar, pjangler, hermes-agent) have **no `skills.external_dirs` block** at all and need one provisioned first.
+- **Precedence caveat is real:** wiring while a diverged (or even identical, pre-delete) base local remains makes `skill_view` return "Ambiguous skill name". So the script now **reconciles-to-name-disjoint then wires**, and **refuses to wire (no deletions) while any diverged base local remains** — safe on every agent.
+- **Bug caught + fixed:** an early version's `wire` silently "succeeded" on a bare config (a `set -e`-in-function gotcha) and deleted pjangler's 18 base skills; restored them from the pack (byte-identical) and hardened `wire_cfg` to fail-before-delete. voxxy was never mutated.
+
 ---
 
 ## 1. Fleet census — 22 deployed PM agents
