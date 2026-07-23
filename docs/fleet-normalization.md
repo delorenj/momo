@@ -54,6 +54,12 @@
 - **Precedence caveat is real:** wiring while a diverged (or even identical, pre-delete) base local remains makes `skill_view` return "Ambiguous skill name". So the script now **reconciles-to-name-disjoint then wires**, and **refuses to wire (no deletions) while any diverged base local remains** — safe on every agent.
 - **Bug caught + fixed:** an early version's `wire` silently "succeeded" on a bare config (a `set -e`-in-function gotcha) and deleted pjangler's 18 base skills; restored them from the pack (byte-identical) and hardened `wire_cfg` to fail-before-delete. voxxy was never mutated.
 
+### Templatize EXECUTED — per-skill, scoped-name (2026-07-23)
+Reworked the tool to **`hermes-runtime-templatize.py`** (per-SKILL, since 14/18 base dirs are categories holding 73 sub-skills; it mirrors hermes `iter_skill_index_files` exactly — excludes `.archive`/support dirs). **Policy (your call):** identical base sub-skill → delete (resolve from pack); **overwritten → scoped-name override** (rename dir + frontmatter `name:` → `<name>-<slug>`, promoting it to an unambiguous agent-scoped copy); agent-adds → untouched.
+- **18 of 22 agents deduped + `verify: CLEAN` (name-disjoint)**, services unchanged (21/20), no new failures. Many agents shed all 73 duplicated base skills (now resolve from the one pack); a few kept edits as scoped copies (delodocs kept 45 as `*-delodocs`, nautilus_trader/33god 3 each, etc.).
+- **4 bare agents BLOCKED** (candybar, delocontainers, drumjangler, pjangler) — no `skills.external_dirs` key; they need a skills block provisioned before dedup (a config decision — and whether to also give them + bloodbank the mainline `global/.system` + `bmad` dirs for fleet consistency).
+- Runtime changes live on disk only (runtimes are pure-local by D2 — no git). The tool is committed; the `hermes-base-guard.sh` is still dir-level and should be reworked to per-skill (the tool's `verify` does per-skill now).
+
 ---
 
 ## 1. Fleet census — 22 deployed PM agents
