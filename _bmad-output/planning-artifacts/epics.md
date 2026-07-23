@@ -135,10 +135,12 @@
 - **AC2** The emitted **decision type stays 5-token** (`bloodbank.v1.repo.decision.recorded`, slug in `data.repo`); repo/agent_id appear **only** in subscribe subjects, never in the emitted type (guard against the invalid 6-token form).
 - **AC3** A `SOUL.md`-shaped file **references `PILLARS.md`** (asserted: not inlined) and carries the tone knob; flip the PILLARS wiring-checklist row here (where the spec actually exists).
 
-### S4.2 — Extract/vendor Toad's fanout engine  (L) — FR-4.1
-- **AC1** Correct manifest: `engine.ts` **+ `spec.ts` + `targets.ts` + `util/deterministic.ts` + `adapters/*`** (the {engine,targets} list was incomplete).
-- **AC2** Add a **golden-output test to Toad's fanout first** (Toad has zero tests), so "Toad still builds/passes" is machine-checkable, not a bare typecheck.
-- **AC3** Decide the boundary (vendor-with-attribution vs. shared workspace package) and reconcile `loadSpec` with Momo's master schema (or replace `spec.ts` with Momo's loader). Record as the Rule-of-Three decision.
+### S4.2 — Adopt the shared skillex fanout (`skill_ssot.py` / agent-config-fanout)  (M) — FR-4.1
+> **Correction (2026-07-23):** Toad's fanout engine is being **RETIRED** (approved 2026-07-15).
+> Do NOT extract/vendor it — consume the existing shared fanout instead.
+- **AC1** Generate per-dialect agent configs from the one master via `skillex/scripts/skill_ssot.py` + the `agent-config-fanout` skill; **no Toad engine imported**.
+- **AC2** A **golden-output test** asserts the skillex fanout's generated dialects are byte-stable (the drift gate), not a bare typecheck.
+- **AC3** Consume the shared `agent-config-fanout` SSOT — do **not** fork it. This is the Rule-of-Three-honest choice (reuse the proven shared seam, not a second engine). Record the decision.
 
 ### S4.3 — Second dialect adapter + `fanout sync`/`check`  (M) — FR-8.1, FR-4.3
 - **AC1** A **file-render** dialect (OpenCode command or Codex AGENTS.md) renders from the **unchanged** master; if a change was needed it's a superset addition, recorded.

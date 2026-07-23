@@ -11,10 +11,11 @@ If a ready ticket exists, exactly one implementation worker is actively moving i
 records why none can. One live thread beats a quiet backlog (pillar
 `keep-the-pipeline-unblocked`). WIP = 1, shared with Hermes.
 
-## State machine (mirror — canonical labels from the repo's `ticket-lifecycle` workflow.yaml)
+## State machine (mirror of the one versioned Lifecycle spec)
 
-Normalized (adapter) ↔ Plane labels. The repo's `ticket-lifecycle/workflow.yaml` `states:`
-block is the source of truth for label names; it defines the **unstarted band** as
+Normalized (adapter) ↔ Plane labels. **SSOT = `momo/lifecycle/lifecycle.v1.yaml`** (the one
+versioned machine); provider label names come from the `tp` adapter, and the repo's
+`ticket-lifecycle/workflow.yaml` only overrides knobs. The canonical **unstarted band** is
 Triage / Refining / Ready. A literal "To&nbsp;Do" column is *not* in that map — it is Plane's
 **default** unstarted group, present only on boards that keep the Plane defaults. Resolve the
 board's actual state names via `momo-board.sh` (`list_issues` shows each ticket's `state`)
@@ -28,8 +29,8 @@ fail); refining → ready (re-eval passes) | blocked (still insufficient); ready
 in_progress (gate fails, retry) | blocked (AC ambiguity); qa → **done** (all AC pass) |
 in_progress (fail, retries left) | blocked (retries exhausted). done/blocked terminal.
 
-Knobs to load at runtime from the repo's `_bmad/custom/workflows/ticket-lifecycle/workflow.yaml`
-(do not hardcode — the operator may edit them via that workflow's edit mode):
+Knobs default from `momo/lifecycle/lifecycle.v1.yaml` (the SSOT); the repo's
+`_bmad/custom/workflows/ticket-lifecycle/workflow.yaml` may override them (do not hardcode):
 - **AC rubric** (all 4, no short-circuit): `non_empty ∧ testable ∧ enumerated ∧ fr_coverage`.
 - **QA retries**: `qa.max_retries` (default 3); on retry re-verify only previously-failed AC.
 - **Staleness (minutes)**: triage 10, refining 30, in_progress 120, review 15, qa 60.
