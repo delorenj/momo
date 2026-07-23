@@ -9,7 +9,8 @@ Hermes sentinel's continuous-orchestration protocol. **Do not invent a different
 
 If a ready ticket exists, exactly one implementation worker is actively moving it, or Momo
 records why none can. One live thread beats a quiet backlog (pillar
-`keep-the-pipeline-unblocked`). WIP = 1, shared with Hermes.
+`keep-the-pipeline-unblocked`). WIP = 1, shared with Hermes via the driver lease
+(`scripts/momo-wip-lock.py`; see *One loop pass* → Coexistence lock).
 
 ## State machine (mirror of the one versioned Lifecycle spec)
 
@@ -41,10 +42,18 @@ completion/summary step; and run the staleness watchdog yourself (no step file e
 
 ## One loop pass
 
+**Coexistence lock (WIP=1, shared with Hermes).** Before driving, acquire the shared driver
+lease so you and the Hermes sentinel never double-drive one board:
+`python3 scripts/momo-wip-lock.py acquire <runtime>/wip-driver.lock momo` (`<runtime>` =
+`<role_dir>/runtime`). **Exit 1** = Hermes holds it fresh → **do not drive** this pass;
+monitor its work and back off. **Exit 0** = you hold it → drive, `refresh` it during a long
+pass (heartbeat < ttl), and `release` it when the pass ends or on any exit. A crashed
+holder's lease expires after its ttl (default 300s), so the board is never wedged.
+
 1. **Awareness** (see `board-awareness.md`): active milestone, `list_issues`, Hermes state,
    evidence dir, event trail, live workers/worktrees.
 2. **Is a worker already active and healthy?** (yours or Hermes'). Yes → monitor it, record
-   state, and go to step 6 (this pass adds no new worker). WIP=1.
+   state, and go to step 6 (this pass adds no new worker). WIP=1 (you already hold the lease).
 3. **Clear the review lane first.** For any `in_review` ticket with complete evidence and an
    available independent reviewer, run the autonomous adversarial review
    (`review-and-closure.md`) and act on the verdict immediately — accept (treat as done) or
@@ -55,7 +64,8 @@ completion/summary step; and run the staleness watchdog yourself (no step file e
 5. **Advance the picked ticket** through the per-ticket pipeline (triage→…→gates→review).
 6. **Staleness sweep** — any ticket past its state's threshold: record it, emit a stale
    signal, and either re-drive or flag as a blocker. Nothing rots silently.
-7. **Update your read of the world** and decide: continue, wait (timer), or stop.
+7. **Update your read of the world** and decide: continue, wait (timer), or stop. On
+   stop/exit, `release` the WIP lease (or let it expire) so Hermes can resume.
 
 ## Selection policy (when no worker is active)
 
