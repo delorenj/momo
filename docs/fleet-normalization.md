@@ -56,9 +56,11 @@
 
 ### Templatize EXECUTED — per-skill, scoped-name (2026-07-23)
 Reworked the tool to **`hermes-runtime-templatize.py`** (per-SKILL, since 14/18 base dirs are categories holding 73 sub-skills; it mirrors hermes `iter_skill_index_files` exactly — excludes `.archive`/support dirs). **Policy (your call):** identical base sub-skill → delete (resolve from pack); **overwritten → scoped-name override** (rename dir + frontmatter `name:` → `<name>-<slug>`, promoting it to an unambiguous agent-scoped copy); agent-adds → untouched.
-- **18 of 22 agents deduped + `verify: CLEAN` (name-disjoint)**, services unchanged (21/20), no new failures. Many agents shed all 73 duplicated base skills (now resolve from the one pack); a few kept edits as scoped copies (delodocs kept 45 as `*-delodocs`, nautilus_trader/33god 3 each, etc.).
-- **4 bare agents BLOCKED** (candybar, delocontainers, drumjangler, pjangler) — no `skills.external_dirs` key; they need a skills block provisioned before dedup (a config decision — and whether to also give them + bloodbank the mainline `global/.system` + `bmad` dirs for fleet consistency).
-- Runtime changes live on disk only (runtimes are pure-local by D2 — no git). The tool is committed; the `hermes-base-guard.sh` is still dir-level and should be reworked to per-skill (the tool's `verify` does per-skill now).
+- **ALL 22 agents deduped + `verify: CLEAN` (name-disjoint)**, services unchanged (21/20), no new failures. Many shed all 73 duplicated base skills (now resolve from the one pack); a few kept edits as scoped copies (delodocs kept 45 as `*-delodocs`, nautilus_trader/33god 3 each, etc.).
+- **Full mainline `external_dirs` on all 22** (`global/.system` + `bmad/6.10.2` + `hermes-base/0.18.2`) via `templatize.py provision` (creates the skills block where missing, merges the canonical set).
+- **Bare 4 finished:** drumjangler + pjangler had a config.yaml without a skills block (provisioned + deduped); **candybar + delocontainers had NO config.yaml** (ran on hermes `DEFAULT_CONFIG`) → created a minimal skills config (merges with defaults) + deduped. Services stayed active.
+- **Guard reworked to per-skill:** `hermes-base-guard.py` (in the pack) replaces the dir-level `.sh` + `MANIFEST.sha256` — denies any active local skill whose frontmatter `name:` matches a pack skill but differs (in-place edit); passes scoped copies. `check-tree` + `check-staged`.
+- Runtime changes live on disk only (runtimes are pure-local by D2 — no git). `get_external_skills_dirs` is mtime-cached, so the running agents pick up the new `external_dirs` live (no restart needed).
 
 ---
 
