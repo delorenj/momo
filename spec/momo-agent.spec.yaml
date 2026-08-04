@@ -85,8 +85,8 @@ pillars_pointer:
   universal: "momo/skill/references/pillars.md"          # process pillars; travel with the skill
   per_repo:  "{repo_root}/.momo/pillars.md"              # scaffolded from momo/skill/templates/pillars.md
 lifecycle_pointer:
-  # ONE versioned machine, promoted into the Momo component (T-lifecycle).
-  spec: "momo/spec/ticket-lifecycle/workflow.yaml"
+  # ONE versioned machine, promoted into the Krebs component.
+  spec: "krebs/spec/lifecycle.v1.yaml"
   # Per-repo file carries ONLY label diffs (the normalized-state map), never a
   # different machine. Its `states:` block feeds role.yaml ticket_provider
   # in_review/completed overrides.
