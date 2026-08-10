@@ -53,6 +53,24 @@ never let it inherit Momo's session history. The prompt must carry:
 Do not run two implementers at once unless both cards are parallel-safe with disjoint files.
 Answer questions the worker asks before it proceeds.
 
+### Structured hand-back (33GPM-3)
+
+Before dispatching, initialize a hand-back bundle so silent worker death is detectable:
+
+```bash
+python3 momo/skill/scripts/momo-worker-handback.py --issue <ISSUE> init --agent-id <worker-id>
+```
+
+The worker (or Momo on its behalf) calls `heartbeat` periodically to prove liveness.
+When the worker finishes, it must `finalize` with `--status`, `--summary`, and check flags
+(`--tests`, `--lint`, `--mutation`). A worker is not counted as done until `validate`
+returns `VALID`. If the heartbeat goes stale (default TTL 300s), the monitor script
+(`momo-worker-monitor.py`) detects it and Momo retries per the policy (max 3, exponential
+backoff). The bundle is a JSON file at `_bmad-output/implementation-artifacts/handback/<ISSUE>.handback.json`.
+
+**GoF pattern:** Command — each CLI subcommand (init/heartbeat/finalize/validate/show) is a
+discrete command object with its own handler.
+
 ## Capture evidence (report is evidence, not truth)
 
 When the worker returns, distill its report into the ticket's evidence file
@@ -61,6 +79,24 @@ When the worker returns, distill its report into the ticket's evidence file
 risks, and the resulting **HEAD_SHA** and the implementer's identity (agent type +
 model/provider — needed to prove reviewer independence later). Keep the raw transcript out
 of your context; store only the distilled result.
+
+### Automated evidence capture (33GPM-4)
+
+Instead of re-running tests and mutation checks manually, use the evidence capture script:
+
+```bash
+python3 momo/skill/scripts/momo-evidence-capture.py --issue <ISSUE> \
+  [--pytest-cmd "pytest"] [--ruff-cmd "ruff check ."] [--update-baseline]
+```
+
+This reads the hand-back bundle, runs baseline + branch test counts, executes a mutation
+check (revert the fix, confirm tests fail, restore), and writes a machine-readable
+`issue-<ISSUE>-evidence.json` artifact. Momo links this artifact in the evidence file
+rather than narrating test runs in ticket comments. The `--update-baseline` flag records
+the current test count as the baseline for future comparisons.
+
+**GoF pattern:** Template Method — the capture flow (baseline → branch → mutation) is a
+fixed skeleton with overridable steps (pytest-cmd, ruff-cmd).
 
 Handle the status: `DONE` → gates. `DONE_WITH_CONCERNS` → address correctness/scope concerns
 first. `NEEDS_CONTEXT` → supply it, re-dispatch. `BLOCKED` → give more context (same worker),

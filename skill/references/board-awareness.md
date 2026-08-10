@@ -116,7 +116,27 @@ beyond a binding repair still goes through a delegated worker.
 
 - Evidence: `_bmad-output/implementation-artifacts/issue-evidence/<ISSUE>.md`
 - Decision/event trail: `_bmad-output/implementation-artifacts/bloodbank-events.jsonl`
+- Hand-back bundles: `_bmad-output/implementation-artifacts/handback/<ISSUE>.handback.json`
+- Findings ledger: `_bmad-output/implementation-artifacts/findings/<ISSUE>.findings.json`
+- Evidence artifacts: `_bmad-output/implementation-artifacts/evidence/<ISSUE>.evidence.json`
+- Tree lock: `.momo/tree.lock` (advisory lock against background auto-commits)
 - Live workers: `git status`, branches, `git worktree list`, recent commits, zellij sessions.
 
 When the board and the evidence disagree, the evidence wins; post a truth-check comment on
 the ticket and keep it open.
+
+## Tree lock (33GPM-8) — guard against background auto-commits
+
+During an active Momo session, the working tree should be locked against unowned
+background commits:
+
+```bash
+python3 momo/skill/scripts/momo-tree-lock.py acquire --owner <session-id>
+python3 momo/skill/scripts/momo-tree-lock.py status
+python3 momo/skill/scripts/momo-tree-lock.py guard    # exit 0 = safe, 1 = locked
+python3 momo/skill/scripts/momo-tree-lock.py release --owner <session-id>
+```
+
+Background automation (cron, heartbeat) should call `guard` before committing; if the
+lock is held by an active session, it defers or escalates. The lock has a TTL (default
+300s) and is refreshed by heartbeats. The lock file lives at `.momo/tree.lock`.

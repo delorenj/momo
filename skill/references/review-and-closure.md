@@ -72,6 +72,51 @@ Run WITHOUT `--close`.
   `reconcile.auto_review=false` / `RECONCILE_AUTO_REVIEW=off` also exits 3 but emits NO
   decision event — read the stderr message.
 
+### Stable findings ledger (33GPM-6)
+
+Findings are tracked in a per-issue JSON ledger, not re-enumerated in prose comments:
+
+```bash
+python3 momo/skill/scripts/momo-findings-ledger.py --issue <ISSUE> add \
+  --severity critical --category security --description "Cross-tenant data leak"
+python3 momo/skill/scripts/momo-findings-ledger.py --issue <ISSUE> resolve --id F-001
+python3 momo/skill/scripts/momo-findings-ledger.py --issue <ISSUE> show
+python3 momo/skill/scripts/momo-findings-ledger.py --issue <ISSUE> markdown
+```
+
+The ledger lives at `_bmad-output/implementation-artifacts/findings/<ISSUE>.findings.json`.
+Finding IDs are stable (F001, F002, ...) and survive across comments. The `markdown`
+subcommand renders a table for ticket comments. Momo reads/writes the ledger instead of
+re-enumerating findings in prose.
+
+### Gated lane transitions (33GPM-7)
+
+Lane transitions are precondition-checked, not repaired later:
+
+```bash
+python3 momo/skill/scripts/momo-lane-gate.py --issue <ISSUE> --target completed [--review-file <FILE> | --no-review]
+# exit 0 = allowed (and transitioned), 1 = blocked (JSON on stdout), 2 = error
+```
+
+Gates checked before `in_review`: tree lock (not locked by another session), close gate
+(evidence file complete). Gates before `completed`: all of the above plus autonomous
+review (if `--no-review` is not set). The gate returns structured JSON with per-gate
+pass/fail details. A failed transition is a structured error, not a later audit.
+
+### Reporting discipline (33GPM-5)
+
+One comment per event. Each comment contains delta + current state + asks only.
+Post-mortems go to the decision trail (`bloodbank-events.jsonl`) with a link, not
+duplicated in the ticket. The reporter deduplicates by content hash before posting:
+
+```bash
+python3 momo/skill/scripts/momo-reporter.py --issue <ISSUE> \
+  --event impl-complete --delta "All ACs met" --state "ready for review" [--dry-run]
+```
+
+Use `--dry-run` to preview the comment body and hash without posting. The dedupe guard
+prevents the same content from being posted twice (the 10:36/10:38 duplicate scenario).
+
 ## 4. Downstream regression rollback (the safety valve)
 
 If a later dependent proves a review-accepted feature is ACTUALLY BROKEN: move the accepted
