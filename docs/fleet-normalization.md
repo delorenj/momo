@@ -44,7 +44,7 @@
 **Task 4 (unification) — SSOT foundation placed (new files in `momo/`):**
 - `momo/spec/momo-agent.spec.yaml` — the identity-agnostic behavioral SSOT (roles, charter, prime directives, pillars/lifecycle pointers, memory doctrine, `<slug>-momo` decision identity).
 - `momo/adapter/{render_agent.py, config.overlay.yaml, RENDER_MAP.md, record-decision.fix.md}` — the Hermes adapter (renders `role.yaml`/`SOUL.md` from spec×identity via the existing copier template; honcho-neutralization overlay verified against hermes source).
-- `momo/lifecycle/{lifecycle.v1.yaml, CHANGELOG.md, README.md}` — the one versioned Lifecycle state machine (9 phases → 5 tp bands; per-repo labels move to the `tp` Strategy).
+- `krebs/spec/{lifecycle.v1.yaml, lifecycle-CHANGELOG.md, lifecycle-rationale.md}` — the one versioned Lifecycle state machine (9 phases → 5 tp bands; per-repo labels move to the `tp` Strategy).
 - **Applied safe edits:** `record-decision.py` urn fix (`hermes://agent/<slug>-momo`, `decided_by=momo` preserved — verified); PILLARS wiring row ticked (spec references `PILLARS.md`, not copied); stale `skillex/all-skills/momo` refs fixed in BRAINDUMP + PILLARS.
 
 **Staged (risky live-fleet — pilot + confirm before rollout):** wire pack to 22 configs → reconcile `--apply` (+ triage 12 diverged) · deploy the adapter (render + honcho-neutralize live agents) · repoint the lifecycle mirror (`board-clearing-loop.md`, `SKILL.md`) · per-repo `workflow.yaml` migration · sync `skills/momo` ← SSOT.

@@ -14,7 +14,7 @@ records why none can. One live thread beats a quiet backlog (pillar
 
 ## State machine (mirror of the one versioned Lifecycle spec)
 
-Normalized (adapter) ↔ Plane labels. **SSOT = `momo/lifecycle/lifecycle.v1.yaml`** (the one
+Normalized (adapter) ↔ Plane labels. **SSOT = `krebs/spec/lifecycle.v1.yaml`** (the one
 versioned machine); provider label names come from the `tp` adapter, and the repo's
 `ticket-lifecycle/workflow.yaml` only overrides knobs. The canonical **unstarted band** is
 Triage / Refining / Ready. A literal "To&nbsp;Do" column is *not* in that map — it is Plane's
@@ -30,7 +30,7 @@ fail); refining → ready (re-eval passes) | blocked (still insufficient); ready
 in_progress (gate fails, retry) | blocked (AC ambiguity); qa → **done** (all AC pass) |
 in_progress (fail, retries left) | blocked (retries exhausted). done/blocked terminal.
 
-Knobs default from `momo/lifecycle/lifecycle.v1.yaml` (the SSOT); the repo's
+Knobs default from `krebs/spec/lifecycle.v1.yaml` (the SSOT); the repo's
 `_bmad/custom/workflows/ticket-lifecycle/workflow.yaml` may override them (do not hardcode):
 - **AC rubric** (all 4, no short-circuit): `non_empty ∧ testable ∧ enumerated ∧ fr_coverage`.
 - **QA retries**: `qa.max_retries` (default 3); on retry re-verify only previously-failed AC.

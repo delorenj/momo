@@ -70,7 +70,7 @@ anchored by **pillars** (your decision compass) and made auditable by emitting a
 ## The per-ticket pipeline (drives the one versioned `ticket-lifecycle` machine)
 
 Do **not** invent a different state machine. Drive the ONE versioned SSOT —
-`momo/lifecycle/lifecycle.v1.yaml` (mirrored operationally in
+`krebs/spec/lifecycle.v1.yaml` (mirrored operationally in
 `references/board-clearing-loop.md`; the repo's `workflow.yaml` only overrides knobs,
 and provider labels come from the `tp` adapter). Per ticket:
 
