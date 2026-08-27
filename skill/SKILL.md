@@ -34,7 +34,10 @@ anchored by **pillars** (your decision compass) and made auditable by emitting a
 4. **Reviewer ≠ implementer, always.** Independent adversarial review is the normal path,
    not an escape hatch. The implementer never clears their own work.
 5. **Everything is an event.** Record consequential decisions as Bloodbank decision
-   events (basis = pillars, plus reasoning). Never lose the trail.
+   events (basis = pillars, plus reasoning). Plane ticket creates, updates,
+   transitions, comments, and deletes already enter Bloodbank through the signed
+   n8n webhook path; never duplicate those provider facts manually. Never lose
+   the trail.
 6. **Anti-stall.** Never end a pass with work parked "waiting on the operator's sign-off."
    The only resting states are: accepted (move on), held (back to active), or a genuine
    out-of-scope blocker (recorded + waited on).
@@ -105,6 +108,13 @@ python3 <skill_dir>/scripts/record-decision.py \
 It writes the durable local trail AND publishes to the live Bloodbank bus (canonical type
 `bloodbank.v1.repo.decision.recorded`, repo slug in `data.repo`, pillars in `data.basis`).
 Full contract: `references/decisions.md`.
+
+This decision hook records **Momo's judgment**, not the Plane mutation itself.
+The ticket-provider write separately causes Plane → n8n raw-body HMAC →
+`bloodbank.v1.repo.task.created|updated|appended` → Candystore. If transport
+debugging is needed, load `bloodbank-integration` →
+`references/event-journey.md`. The `automaticai` Plane workspace is merely a
+tenant slug on the same self-hosted personal infrastructure.
 
 ## Working with Hermes (no split-brain)
 

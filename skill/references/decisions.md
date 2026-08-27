@@ -6,6 +6,10 @@ carrying the decision, the **pillars it rests on**, and the reasoning. This is w
 Momo's autonomy auditable — the operator (and Hermes, and dashboards) can query *why* Momo
 did what it did.
 
+Plane ticket lifecycle facts are already emitted by the signed Plane → n8n →
+Bloodbank ingress. Do not append or publish a second task-created/updated/appended
+event after board CRUD. This file covers the additional judgment fact only.
+
 ## The mechanism
 
 ```bash
