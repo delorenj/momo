@@ -77,9 +77,13 @@ docker logs bloodbank-event-toaster --tail 5
 curl -s 'https://ntfy.delo.sh/bloodbank/json?poll=1&since=120s'
 ```
 
-## Note on the sentinel's own events
+## Note on the sentinel scripts
 
-The sentinel scripts (`issue-autonomous-review.sh`, close gate) emit their own repo-lane
-events (`…issue.autonomous_review.decided`, `…issue.gate.passed/failed`) via the local
-`emit-event.py`. Those are complementary — let the scripts emit them. Momo's
-`record-decision.py` is for the *judgment* decisions that have no script of their own.
+The sentinel scripts (`issue-autonomous-review.sh`, close gate) publish nothing. They used
+to mint a repo-lane `…issue.*` family via the local `emit-event.py`; it was never consumed
+and its shape was invalid (repo slug inside the type, `issue` outside the §7 entity
+allowlist), so it was deleted on 2026-08-28. Their verdict is the exit code, the review
+report, the issue evidence file, and the ticket comment.
+
+`record-decision.py` is therefore the only publisher on this path: use it for the *judgment*
+decisions worth a durable record. Do not hand-roll a replacement family for the scripts.

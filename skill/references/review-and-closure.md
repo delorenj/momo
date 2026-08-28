@@ -41,9 +41,12 @@ fails neither gate, but then independence is unproven, so write it.
 
 It chains, accumulating HOLD reasons: report structure → **reviewer independence** (reviewer
 agent ≠ the implementer named in evidence) → drift rubric → adversarial findings → reviewer
-decision → the close gate. It ALWAYS emits
-`bloodbank.v1.repo.<repo>.issue.autonomous_review.decided` with the full verdict. You author
-the review report at `<ISSUE>.review.md` (shape in `templates/review-report.md`).
+decision → the close gate. The verdict is the exit code plus what it prints; the script
+publishes no event (the old `…issue.*` family was never consumed and was retired
+2026-08-28). You author the review report at `<ISSUE>.review.md` (shape in
+`templates/review-report.md`) — that report, the issue evidence file, and the ticket comment
+ARE the accountability trail. Record the judgment call itself with `record-decision.py` when
+it is worth a durable decision event.
 
 **Drift rubric** — accept only `none`/`minor` with no unresolved critical/high finding:
 - `significant` (HOLD): an AC unmet; capability added/removed beyond the ACs/milestone;
@@ -121,10 +124,9 @@ prevents the same content from being posted twice (the 10:36/10:38 duplicate sce
 
 If a later dependent proves a review-accepted feature is ACTUALLY BROKEN: move the accepted
 ticket back to active as a **prerequisite** of the dependent (`tp transition`); comment
-naming the dependent + symptom; emit
-`bloodbank.v1.repo.<repo>.issue.review_rollback.recorded` `{issue, surfaced_by, reason}` (via
-the sentinel `emit-event.py`) plus a Momo decision event. This is expected and healthy — the
-trade for deferring operator QA, not a failure.
+naming the dependent + symptom; record the rollback (issue, surfaced_by, reason) in the
+issue evidence file, and record a Momo decision event with `record-decision.py`. This is
+expected and healthy — the trade for deferring operator QA, not a failure.
 
 ## Out-of-scope blockers (review does NOT clear these)
 
