@@ -106,12 +106,12 @@ python3 <skill_dir>/scripts/record-decision.py \
 ```
 
 It writes the durable local trail AND publishes to the live Bloodbank bus (canonical type
-`bloodbank.v1.repo.decision.recorded`, repo slug in `data.repo`, pillars in `data.basis`).
+`bloodbank.repo.decision.recorded`, repo slug in `data.repo`, pillars in `data.basis`).
 Full contract: `references/decisions.md`.
 
 This decision hook records **Momo's judgment**, not the Plane mutation itself.
 The ticket-provider write separately causes Plane → n8n raw-body HMAC →
-`bloodbank.v1.repo.task.created|updated|appended` → Candystore. If transport
+`bloodbank.repo.task.created|updated|appended` → Candystore. If transport
 debugging is needed, load `bloodbank-integration` →
 `references/event-journey.md`. The `automaticai` Plane workspace is merely a
 tenant slug on the same self-hosted personal infrastructure.

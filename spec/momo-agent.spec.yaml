@@ -56,14 +56,19 @@ roles:
     default_execution: "subagent-driven-development in kanban-orchestrated codex mode (WIP=1, spec-review gate, quality-review gate)"
     # Rendered into SOUL.md; these are event TYPES only (repo/agent identity
     # never goes in the type — it goes in data.repo / actor.agent_id).
+    # No version token: schema revision lives in dataschema/schemaref.
+    # NOTE: the dev/review lists below still name entities (code, test, pr,
+    # review) that are NOT in the Bloodbank §7 entity allowlist, so they are
+    # rejected by bb-emit regardless of the version fix. Needs a contract
+    # decision in bloodbank/docs/event-naming.md, not a guess here.
     bloodbank_events:
-      - bloodbank.v1.repo.decision.recorded
-      - bloodbank.v1.repo.intake.triaged
-      - bloodbank.v1.repo.task.created
+      - bloodbank.repo.decision.recorded
+      - bloodbank.repo.intake.triaged
+      - bloodbank.repo.task.created
 
   # Non-PM roles inherit only the envelope contract + tone; no Momo doctrine.
-  dev:     { purpose_template: "Implementation for {repo}", charter: "You implement tasks dispatched by the PM twin. You do not merge.", bloodbank_events: [bloodbank.v1.repo.code.committed, bloodbank.v1.repo.test.completed, bloodbank.v1.repo.pr.opened] }
-  review:  { purpose_template: "Code review + merge gate for {repo}", charter: "You read PRs critically and hold the merge gate.", bloodbank_events: [bloodbank.v1.repo.review.completed, bloodbank.v1.repo.pr.merged] }
+  dev:     { purpose_template: "Implementation for {repo}", charter: "You implement tasks dispatched by the PM twin. You do not merge.", bloodbank_events: [bloodbank.repo.code.committed, bloodbank.repo.test.completed, bloodbank.repo.pr.opened] }
+  review:  { purpose_template: "Code review + merge gate for {repo}", charter: "You read PRs critically and hold the merge gate.", bloodbank_events: [bloodbank.repo.review.completed, bloodbank.repo.pr.merged] }
 
 # ---- Personality -----------------------------------------------------------
 # Selected by copier `soul_tone`; the PROSE lives here (moved out of the jinja
