@@ -3,13 +3,13 @@
 
 Repo-agnostic: resolves the repo slug from the nearest ancestor `.project.json`
 (the pjangler CommonProject marker). Emits the canonical CloudEvents 1.0 envelope
-`bloodbank.v1.repo.decision.recorded` (repo slug lives in data.repo, NOT the type).
+`bloodbank.repo.decision.recorded` (repo slug lives in data.repo, NOT the type).
 
 Two sinks, both attempted unless flags narrow them:
   1. Durable local trail  — appends the full envelope as JSONL to
      <root>/_bmad-output/implementation-artifacts/bloodbank-events.jsonl
      (same spool the Hermes sentinel reads). Always written unless --dry-run.
-  2. Live bus (NATS v3)   — PUB to subject `bloodbank.evt.v1.repo.decision.recorded`
+  2. Live bus (NATS)      — PUB to subject `bloodbank.evt.repo.decision.recorded`
      via bloodbank's stdlib publisher. Best-effort: a bus outage never loses the
      decision (the local trail still captures it). Skipped with --local-only.
 
@@ -37,9 +37,9 @@ import sys
 import uuid
 from datetime import datetime, timezone
 
-CE_TYPE = "bloodbank.v1.repo.decision.recorded"
+CE_TYPE = "bloodbank.repo.decision.recorded"
 # NATS subject == the CloudEvents type with the `evt` kind-marker inserted after segment 1.
-# Derived from CE_TYPE so the two can never silently drift (Bloodbank Event Naming Contract v1).
+# Derived from CE_TYPE so the two can never silently drift (Bloodbank Event Naming Contract).
 NATS_SUBJECT = CE_TYPE.replace("bloodbank.", "bloodbank.evt.", 1)
 
 

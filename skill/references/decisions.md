@@ -26,7 +26,7 @@ The script (repo-agnostic; resolves the slug from `.project.json`):
    `<repo>/_bmad-output/implementation-artifacts/bloodbank-events.jsonl` — the same spool
    the Hermes sentinel reads. A decision is never lost even if the bus is down.
 2. **Best-effort** publishes to the live Bloodbank bus (NATS v3) on subject
-   `bloodbank.evt.v1.repo.decision.recorded` via bloodbank's stdlib publisher. If NATS is
+   `bloodbank.evt.repo.decision.recorded` via bloodbank's stdlib publisher. If NATS is
    unreachable it warns and exits 3 (decision safe in the trail; bus is behind) — it does
    not fail the decision.
 
@@ -35,12 +35,13 @@ knowingly offline.
 
 ## The contract (get this exactly right)
 
-- **CloudEvents `type` = `bloodbank.v1.repo.decision.recorded`** — exactly 5 dotted tokens.
-  The repo slug goes in **`data.repo`**, NEVER in the type. The 6-token form
-  `bloodbank.v1.repo.<repo>.decision.recorded` is INVALID — it fails the contract regex and
-  the entity allowlist and will be rejected by the bus validator.
+- **CloudEvents `type` = `bloodbank.repo.decision.recorded`** — exactly 4 dotted tokens.
+  The version token was removed from the contract; `bloodbank.v1.repo.decision.recorded` is
+  now REJECTED outright by `bb-emit`. The repo slug goes in **`data.repo`**, NEVER in the
+  type. The 5-token form `bloodbank.repo.<repo>.decision.recorded` is INVALID — it fails the
+  contract regex and the entity allowlist and will be rejected by the bus validator.
 - **NATS subject** = the type with the `evt` kind-marker inserted:
-  `bloodbank.evt.v1.repo.decision.recorded`. The script derives both from one constant, so
+  `bloodbank.evt.repo.decision.recorded`. The script derives both from one constant, so
   they can never drift.
 - **`data`** (schema: repo + decision required; `additionalProperties: true`):
   - `repo` — the project slug.
@@ -49,9 +50,9 @@ knowingly offline.
     on). Prefer stable slugs from `references/pillars.md` and `<repo>/.momo/pillars.md`.
   - `reasoning` — prose why.
   - `decided_by` (=`momo`), `decided_at`, optional `issue`, `artifacts_root`.
-- **Envelope** is a full v1 CloudEvent (`kind=event`, `domain=repo`, `actor.agent_id=momo`,
+- **Envelope** is a full CloudEvent (`kind=event`, `domain=repo`, `actor.agent_id=momo`,
   `ordering_key=repo:<slug>`, `producer=agent:momo`, `service=<slug>`) — so it validates
-  against the existing schema at `bloodbank/schemas/bloodbank/v1/repo/decision.recorded.v1.json`.
+  against the existing schema at `bloodbank/schemas/bloodbank/repo/decision.recorded.json`.
   No schema-tree change is needed; the type already exists and validates.
 
 ## When to record (mandatory)
@@ -69,7 +70,7 @@ for calls where knowing the *why* later has value.
 
 ## Verify a live event landed
 
-The `event-toaster` subscribes `bloodbank.evt.v1.>` and forwards to `ntfy.delo.sh/bloodbank`:
+The `event-toaster` subscribes `bloodbank.evt.>` and forwards to `ntfy.delo.sh/bloodbank`:
 
 ```bash
 docker logs bloodbank-event-toaster --tail 5
