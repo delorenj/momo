@@ -18,3 +18,8 @@ __pycache__/
 .crush/skills
 .cursor/skills
 .agents/skills
+
+# Git is the backup. Never commit a frozen plaintext copy of a file.
+*.bak
+*.bak-*
+*.orig

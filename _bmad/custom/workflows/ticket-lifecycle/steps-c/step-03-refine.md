@@ -6,6 +6,7 @@ nextStepFile: './step-04-implement.md'
 acRubric: '../data/ac-sufficiency-rubric.md'
 auditCommentTemplate: '../data/audit-comment-template.md'
 planeSkill: '~/.claude/skills/managing-tickets-and-tasks-in-plane/'
+eventSchemas: '../data/event-schemas.md'
 ---
 
 # Step 3: AC Refinement via Plane Captain
@@ -102,7 +103,7 @@ reason: AC refined and passed sufficiency rubric (4/4 criteria met)
 ```
 
 Update ticket status to ready state.
-Broadcast Bloodbank event with `new_state: "ready"`.
+Broadcast `bloodbank.repo.task.updated` with `phase: "ready"` (see {eventSchemas}).
 
 **Proceeding to implementation...**
 Immediately load, read entire file, then execute {nextStepFile}.
@@ -124,7 +125,7 @@ details:
 ```
 
 Update ticket status to blocked state.
-Broadcast `ticket.stale` Bloodbank event.
+Broadcast `bloodbank.repo.task.updated` with `trigger_source: "ticket-lifecycle-staleness"` and `phase: "blocked"` (see {eventSchemas}). There is no separate staleness type.
 EXIT workflow. This ticket needs human intervention.
 
 ---
