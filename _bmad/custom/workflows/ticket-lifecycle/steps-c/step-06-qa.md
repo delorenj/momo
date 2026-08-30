@@ -5,8 +5,8 @@ description: 'Spawn QA Agent for line-item AC verification with retry loop handl
 doneStepFile: './step-07-complete.md'
 retryStepFile: './step-04-implement.md'
 auditCommentTemplate: '../data/audit-comment-template.md'
-workflowConfig: '../workflow.yaml'
 eventSchemas: '../data/event-schemas.md'
+workflowConfig: '../workflow.yaml'
 ---
 
 # Step 6: QA Verification via QA Agent

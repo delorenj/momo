@@ -5,8 +5,8 @@ description: 'Spawn Plane Captain sub-agent to define or improve acceptance crit
 nextStepFile: './step-04-implement.md'
 acRubric: '../data/ac-sufficiency-rubric.md'
 auditCommentTemplate: '../data/audit-comment-template.md'
-planeSkill: '~/.claude/skills/managing-tickets-and-tasks-in-plane/'
 eventSchemas: '../data/event-schemas.md'
+planeSkill: '~/.claude/skills/managing-tickets-and-tasks-in-plane/'
 ---
 
 # Step 3: AC Refinement via Plane Captain

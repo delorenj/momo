@@ -81,13 +81,11 @@ Present a summary of all changes applied:
 ### SUCCESS:
 - All confirmed changes applied to correct files
 - Every event type literal validated with `bb emit --check` before writing
-- Every event type literal validated with `bb emit --check` before writing
 - Each change verified after application
 - Summary presented with before/after values
 
 ### FAILURE:
 - Applying unconfirmed changes
-- Writing an event type that `bb emit --check` refuses
 - Writing an event type that `bb emit --check` refuses
 - Modifying wrong files
 - Not verifying changes after application
