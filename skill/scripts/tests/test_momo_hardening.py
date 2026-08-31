@@ -190,23 +190,64 @@ class TestEvidenceCapture(unittest.TestCase):
 
 
 class TestConfigDrift(unittest.TestCase):
-    """Verify the PROJ -> 33GPM identifier fix."""
+    """Verify the current 33GOD project identifier does not drift."""
 
     def test_project_json_identifier(self):
         data = json.loads((ROOT / ".project.json").read_text())
-        self.assertEqual(data["ticket_provider"]["identifier"], "33GPM")
+        self.assertEqual(data["ticket_provider"]["identifier"], "33GOD")
 
     def test_role_yaml_identifier(self):
         text = (ROOT / "agents" / "hermes" / "pm" / "role.yaml").read_text()
-        self.assertIn("33GPM", text)
+        self.assertIn("33GOD", text)
         # Check the identifier line specifically, not the word "PROJECT" in comments
         for line in text.splitlines():
             if line.strip().startswith("identifier:"):
-                self.assertIn("33GPM", line)
+                self.assertIn("33GOD", line)
                 self.assertNotIn("PROJ\"", line)
                 break
         else:
             self.fail("no identifier: line found in role.yaml")
+
+
+class TestBoardCredentialPreflight(unittest.TestCase):
+    """JIMB-207: The wrapper recognizes provider-owned fleet credentials."""
+
+    def test_fleet_op_reference_suppresses_false_missing_key_warning(self):
+        with tempfile.TemporaryDirectory(prefix="momo-board-test-") as temp:
+            root = pathlib.Path(temp) / "repo"
+            role = root / "agents" / "hermes" / "pm"
+            adapter = role / ".scripts" / "lib" / "ticket-provider.sh"
+            adapter.parent.mkdir(parents=True)
+            (root / ".project.json").write_text(json.dumps({
+                "ticket_provider": {"type": "plane", "workspace": "test.space-name"},
+                "agents": {"test-pm": {"role_dir": "agents/hermes/pm"}},
+            }))
+            adapter.write_text('tp() { printf \'{"provider":"plane"}\\n\'; }\n')
+
+            marker = pathlib.Path(temp) / "must-not-exist"
+            fleet_env = pathlib.Path(temp) / "fleet.env"
+            fleet_env.write_text("\n".join([
+                f"UNRELATED=$(touch {marker})",
+                "PLANE_TEST_SPACE_NAME_API_KEY=op://Example/Plane/apiKey",
+            ]) + "\n")
+            env = os.environ.copy()
+            env.pop("PLANE_API_KEY", None)
+            env.pop("PLANE_TEST_SPACE_NAME_API_KEY", None)
+            env["HERMES_FLEET_ENV"] = str(fleet_env)
+
+            result = subprocess.run(
+                ["bash", str(SCRIPTS / "momo-board.sh"), "--root", str(root), "resolve"],
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=15,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("momo-board: WARN", result.stderr)
+            self.assertNotIn("op://", result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":

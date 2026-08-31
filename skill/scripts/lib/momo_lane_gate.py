@@ -43,7 +43,11 @@ class LaneGate:
         self.issue = issue
         self.role_dir = root / "agents" / "hermes" / "pm"
         self.sentinel_bin = self.role_dir / ".scripts" / "sentinel" / "bin"
-        self.board = root / "momo" / "skill" / "scripts" / "momo-board.sh"
+        # Prefer the adapter bundled beside this installed skill. Profile installs
+        # do not necessarily leave a repo-local momo checkout or role wrapper.
+        self.board = Path(__file__).resolve().parents[1] / "momo-board.sh"
+        if not self.board.is_file():
+            self.board = root / "momo" / "skill" / "scripts" / "momo-board.sh"
         if not self.board.is_file():
             self.board = self.role_dir / ".scripts" / "momo-board.sh"
 

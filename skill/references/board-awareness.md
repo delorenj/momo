@@ -12,7 +12,8 @@ Momo is repo-agnostic. Everything is resolved at runtime from the nearest ancest
     "type": "plane",                      // adapter provider (plane|linear|trello)
     "workspace": "33god",                 // -> Plane workspace + PLANE_<WS>_API_KEY
     "board_id": "82e5…",                  // Plane project UUID (may be EMPTY — see self-heal)
-    "identifier": "CANDYS"                // board key prefix
+    "identifier": "CANDYS",               // board key prefix
+    "timezone": "America/New_York"        // optional project calendar override
   },
   "agents": { "candystore-pm": { "role": "pm", "role_dir": "agents/hermes/pm" } }
 }
@@ -38,9 +39,22 @@ bash <skill_dir>/scripts/momo-board.sh transition <uuid> <state>
 ```
 
 Reason in **normalized states** only: `backlog | unstarted | started | in_review | completed`.
+For Plane, every `list_issues` row also carries `active_milestone_id` and
+`in_active_milestone`. The list remains project-wide; use that membership flag whenever
+you describe what is visible in Plane's current-cycle view. Never label the full-project
+set as the active cycle.
+
 The wrapper finds the repo root + role_dir, and (for Plane) maps the per-workspace secret
-`PLANE_<WORKSPACE>_API_KEY` (from `~/.config/zshyzsh/secrets.zsh`) into the `PLANE_API_KEY`
-the adapter needs. `PLANE_BASE` defaults to `https://plane.delo.sh`.
+`PLANE_<WORKSPACE>_API_KEY` into the `PLANE_API_KEY` the adapter needs. If it is not in the
+process environment, the provider reads that exact key as inert data from
+`$HERMES_FLEET_ENV` or `~/.hermes/fleet.env` and resolves an `op://` reference immediately
+before use. The wrapper's preflight checks the same locations without sourcing the fleet
+file or printing the reference. `PLANE_BASE` defaults to `https://plane.delo.sh`.
+
+`active_milestone` means date-current in the project's configured calendar, not merely
+"the first cycle Plane returned" and not the UTC date. Set an IANA name at
+`ticket_provider.timezone` (role config; `.project.json` may override it). With no
+date-current cycle it returns empty `id`/`name` and `state:"inactive"`.
 
 ## Provider = trello (self-contained adapter + config-driven lanes)
 

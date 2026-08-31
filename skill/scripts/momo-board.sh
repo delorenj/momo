@@ -13,6 +13,7 @@
 #   | comment <id> <body> | transition <id> <backlog|unstarted|started|in_review|completed>
 #
 # For plane it maps the per-workspace secret PLANE_<WORKSPACE>_API_KEY into PLANE_API_KEY.
+# The provider may also resolve that key from the inert shared Hermes fleet env.
 # For trello it reads TRELLO_API_KEY/TRELLO_KEY + TRELLO_TOKEN from the env.
 set -uo pipefail
 
@@ -76,11 +77,35 @@ ADAPTER="$ROOT/$ROLE_DIR/.scripts/lib/ticket-provider.sh"
 
 # Plane: map the per-workspace secret into the PLANE_API_KEY the adapter expects.
 if [ "${PROVIDER:-}" = "plane" ]; then
-  WSU="$(printf '%s' "${WS:-}" | tr '[:lower:]-' '[:upper:]_')"
+  WSU="$(printf '%s' "${WS:-}" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z0-9]/_/g')"
   var="PLANE_${WSU}_API_KEY"
   export PLANE_API_KEY="${PLANE_API_KEY:-${!var:-}}"
-  if [ -z "${PLANE_API_KEY:-}" ]; then
-    echo "momo-board: WARN PLANE_API_KEY empty (checked \$PLANE_API_KEY and \$$var from secrets.zsh)." >&2
+  fleet_env="${HERMES_FLEET_ENV:-${HOME:-}/.hermes/fleet.env}"
+  fleet_has_key=0
+  if [ -z "${PLANE_API_KEY:-}" ] && [ -f "$fleet_env" ]; then
+    if python3 - "$fleet_env" "$var" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+key = sys.argv[2]
+for raw in path.read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        continue
+    if line.startswith("export "):
+        line = line[7:].lstrip()
+    name, sep, value = line.partition("=")
+    if sep and name.strip() == key and value.strip().strip("'\""):
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+    then
+      fleet_has_key=1
+    fi
+  fi
+  if [ -z "${PLANE_API_KEY:-}" ] && [ "$fleet_has_key" -ne 1 ]; then
+    echo "momo-board: WARN Plane credential unavailable (checked \$PLANE_API_KEY, \$$var, and $fleet_env)." >&2
   fi
 fi
 
