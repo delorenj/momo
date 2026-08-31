@@ -313,6 +313,20 @@ class TestLaneGate(unittest.TestCase):
             self.assertNotIn("accepted", json.dumps(result).lower())
 
 
+def trello_board_card(
+    card_id="card-1",
+    board="board-1",
+    id_short=42,
+    short_link="abc123",
+):
+    return {
+        "id": card_id,
+        "idBoard": board,
+        "idShort": id_short,
+        "shortLink": short_link,
+    }
+
+
 class FakeTrello:
     def __init__(self, lists, card_gets, put_response, post_response=None, cards=None):
         self.lists = lists
@@ -341,9 +355,156 @@ class FakeTrello:
         return self.post_response
 
 
+class TestTrelloCardResolution(unittest.TestCase):
+    def resolve(self, fake, reference="card-1", identifier="MOMO"):
+        return trello_provider.resolve_card_id(
+            fake,
+            "board-1",
+            reference,
+            identifier,
+        )
+
+    def assert_resolution_error(self, fake, reference, expected):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            self.resolve(fake, reference)
+        self.assertIn(expected, stderr.getvalue())
+        self.assertFalse(any(call[0] in {"PUT", "POST"} for call in fake.calls))
+
+    def test_native_shortlink_idshort_and_project_key_resolve_uniquely(self):
+        cases = (
+            ("card-1", trello_board_card()),
+            ("ABC123", trello_board_card()),
+            ("42", trello_board_card()),
+            ("42", trello_board_card(id_short="42")),
+            ("momo-42", trello_board_card()),
+        )
+        for reference, card in cases:
+            with self.subTest(reference=reference, id_short=card["idShort"]):
+                fake = FakeTrello([], [], {}, cards=[card])
+
+                self.assertEqual(self.resolve(fake, reference), "card-1")
+                self.assertEqual(fake.calls, [(
+                    "GET",
+                    "boards/board-1/cards",
+                    {"fields": "id,idBoard,idShort,shortLink"},
+                )])
+
+    def test_blank_reference_fails_before_network(self):
+        for reference in ("", " ", " card-1", "card-1 "):
+            with self.subTest(reference=reference):
+                fake = FakeTrello([], [], {}, cards=[trello_board_card()])
+
+                self.assert_resolution_error(fake, reference, "non-blank exact")
+                self.assertEqual(fake.calls, [])
+
+    def test_no_match_fails_after_board_read_only_lookup(self):
+        fake = FakeTrello([], [], {}, cards=[trello_board_card()])
+
+        self.assert_resolution_error(fake, "external-card", "not on configured board")
+
+        self.assertEqual([call[0] for call in fake.calls], ["GET"])
+
+    def test_duplicate_casefold_alias_fails_closed(self):
+        fake = FakeTrello(
+            [],
+            [],
+            {},
+            cards=[
+                trello_board_card(
+                    card_id="card-1",
+                    id_short=42,
+                    short_link="same-key",
+                ),
+                trello_board_card(
+                    card_id="card-2",
+                    id_short=43,
+                    short_link="SAME-KEY",
+                ),
+            ],
+        )
+
+        self.assert_resolution_error(fake, "same-key", "duplicate card alias")
+
+        self.assertEqual([call[0] for call in fake.calls], ["GET"])
+
+    def test_duplicate_idshort_and_project_key_aliases_fail_closed(self):
+        fake = FakeTrello(
+            [],
+            [],
+            {},
+            cards=[
+                trello_board_card(
+                    card_id="card-1",
+                    id_short=42,
+                    short_link="key-one",
+                ),
+                trello_board_card(
+                    card_id="card-2",
+                    id_short="42",
+                    short_link="key-two",
+                ),
+            ],
+        )
+
+        self.assert_resolution_error(fake, "MOMO-42", "duplicate card alias")
+
+        self.assertEqual([call[0] for call in fake.calls], ["GET"])
+
+    def test_empty_alias_or_native_id_fails_closed(self):
+        malformed_cards = (
+            {**trello_board_card(), "id": ""},
+            {**trello_board_card(), "idShort": ""},
+            {**trello_board_card(), "idShort": " "},
+            {**trello_board_card(), "shortLink": ""},
+            {**trello_board_card(), "shortLink": " "},
+        )
+        for card in malformed_cards:
+            with self.subTest(card=card):
+                fake = FakeTrello([], [], {}, cards=[card])
+
+                self.assert_resolution_error(fake, "card-1", "card")
+                self.assertEqual([call[0] for call in fake.calls], ["GET"])
+
+    def test_malformed_board_cards_response_fails_closed(self):
+        for cards in ({}, [None]):
+            with self.subTest(cards=cards):
+                fake = FakeTrello([], [], {}, cards=cards)
+
+                self.assert_resolution_error(fake, "card-1", "board cards response")
+                self.assertEqual([call[0] for call in fake.calls], ["GET"])
+
+    def test_external_board_card_fails_after_read_only_lookup(self):
+        fake = FakeTrello(
+            [],
+            [],
+            {},
+            cards=[trello_board_card(board="board-2")],
+        )
+
+        self.assert_resolution_error(fake, "card-1", "external board")
+
+        self.assertEqual([call[0] for call in fake.calls], ["GET"])
+
+    def test_missing_or_malformed_board_identity_fails_after_read_only_lookup(self):
+        for board_value in (None, "", 123):
+            with self.subTest(board_value=board_value):
+                card = trello_board_card()
+                if board_value is None:
+                    card.pop("idBoard")
+                else:
+                    card["idBoard"] = board_value
+                fake = FakeTrello([], [], {}, cards=[card])
+
+                self.assert_resolution_error(fake, "card-1", "valid idBoard")
+                self.assertEqual([call[0] for call in fake.calls], ["GET"])
+
+
 class TestTrelloTransition(unittest.TestCase):
     def transition(self, fake, card_ref="card-1", target="completed", config=None):
         config = config or {}
+        if fake.cards is None:
+            fake.cards = [trello_board_card()]
         return trello_provider.transition_card(
             fake,
             "board-1",
@@ -351,6 +512,28 @@ class TestTrelloTransition(unittest.TestCase):
             target,
             config,
             trello_provider.lane_map(config),
+            "MOMO",
+        )
+
+    def successful_fake(self):
+        return FakeTrello(
+            [{"id": "list-done", "name": "Done"}],
+            [
+                {
+                    **trello_board_card(),
+                    "idList": "list-old",
+                },
+                {
+                    **trello_board_card(),
+                    "idList": "list-done",
+                },
+            ],
+            {
+                "id": "card-1",
+                "idBoard": "board-1",
+                "idList": "list-done",
+            },
+            cards=[trello_board_card()],
         )
 
     def assert_transition_error(self, fake, expected):
@@ -367,7 +550,10 @@ class TestTrelloTransition(unittest.TestCase):
                         {"id": "list-1", "name": names[0]},
                         {"id": "list-2", "name": names[1]},
                     ],
-                    [],
+                    [{
+                        **trello_board_card(),
+                        "idList": "list-old",
+                    }],
                     {},
                 )
 
@@ -423,11 +609,39 @@ class TestTrelloTransition(unittest.TestCase):
                 )
                 self.assert_transition_scope_error(card, expected)
 
+    def test_external_board_card_fails_before_transition_write(self):
+        fake = self.successful_fake()
+        fake.cards = [trello_board_card(board="external-board")]
+
+        self.assert_transition_error(fake, "external board")
+
+        self.assertEqual([call[0] for call in fake.calls], ["GET"])
+        self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 0)
+
+    def test_globally_addressable_external_reference_is_not_transitionable(self):
+        fake = self.successful_fake()
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            self.transition(fake, card_ref="external-card-id")
+
+        self.assertIn("not on configured board", stderr.getvalue())
+        self.assertEqual([call[0] for call in fake.calls], ["GET"])
+        self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 0)
+
     def test_wrong_put_response_fails_before_readback(self):
         wrong_responses = (
             {},
-            {"id": "different-card", "idList": "list-done"},
-            {"id": "card-1", "idList": "different-list"},
+            {
+                "id": "different-card",
+                "idBoard": "board-1",
+                "idList": "list-done",
+            },
+            {
+                "id": "card-1",
+                "idBoard": "board-1",
+                "idList": "different-list",
+            },
         )
         for response in wrong_responses:
             with self.subTest(response=response):
@@ -440,7 +654,12 @@ class TestTrelloTransition(unittest.TestCase):
                             "idShort": 42,
                             "idList": "list-old",
                         },
-                        {"id": "card-1", "idShort": 42, "idList": "list-done"},
+                        {
+                            "id": "card-1",
+                            "idBoard": "board-1",
+                            "idShort": 42,
+                            "idList": "list-done",
+                        },
                     ],
                     response,
                 )
@@ -450,11 +669,40 @@ class TestTrelloTransition(unittest.TestCase):
                 self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
                 self.assertEqual(len(fake.card_gets), 1)
 
+    def test_wrong_or_missing_board_in_put_response_fails_without_readback(self):
+        for board_fields in ({}, {"idBoard": "external-board"}):
+            with self.subTest(board_fields=board_fields):
+                fake = self.successful_fake()
+                fake.put_response = {
+                    "id": "card-1",
+                    "idList": "list-done",
+                    **board_fields,
+                }
+
+                self.assert_transition_error(fake, "PUT response")
+
+                self.assertEqual(
+                    [call[0] for call in fake.calls],
+                    ["GET", "GET", "GET", "PUT"],
+                )
+                self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
+                self.assertEqual(len(fake.card_gets), 1)
+
     def test_wrong_or_missing_readback_fails_without_ok(self):
         wrong_readbacks = (
             {},
-            {"id": "different-card", "idShort": 42, "idList": "list-done"},
-            {"id": "card-1", "idShort": 42, "idList": "different-list"},
+            {
+                "id": "different-card",
+                "idBoard": "board-1",
+                "idShort": 42,
+                "idList": "list-done",
+            },
+            {
+                "id": "card-1",
+                "idBoard": "board-1",
+                "idShort": 42,
+                "idList": "different-list",
+            },
         )
         for readback in wrong_readbacks:
             with self.subTest(readback=readback):
@@ -469,11 +717,33 @@ class TestTrelloTransition(unittest.TestCase):
                         },
                         readback,
                     ],
-                    {"id": "card-1", "idList": "list-done"},
+                    {
+                        "id": "card-1",
+                        "idBoard": "board-1",
+                        "idList": "list-done",
+                    },
                 )
 
                 self.assert_transition_error(fake, "GET readback")
 
+                self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
+
+    def test_wrong_or_missing_board_in_readback_fails_without_reput(self):
+        for board_fields in ({}, {"idBoard": "external-board"}):
+            with self.subTest(board_fields=board_fields):
+                fake = self.successful_fake()
+                fake.card_gets[-1] = {
+                    "id": "card-1",
+                    "idList": "list-done",
+                    **board_fields,
+                }
+
+                self.assert_transition_error(fake, "GET readback")
+
+                self.assertEqual(
+                    [call[0] for call in fake.calls],
+                    ["GET", "GET", "GET", "PUT", "GET"],
+                )
                 self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
 
     def test_exact_transition_puts_once_and_reads_back_same_card(self):
@@ -489,12 +759,17 @@ class TestTrelloTransition(unittest.TestCase):
                 },
                 {
                     "id": "card-1",
+                    "idBoard": "board-1",
                     "idShort": 42,
                     "shortLink": "abc123",
                     "idList": "list-done",
                 },
             ],
-            {"id": "card-1", "idList": "list-done"},
+            {
+                "id": "card-1",
+                "idBoard": "board-1",
+                "idList": "list-done",
+            },
         )
 
         result = self.transition(fake)
@@ -513,8 +788,9 @@ class TestTrelloTransition(unittest.TestCase):
         self.assertEqual(
             [call[:2] for call in fake.calls],
             [
-                ("GET", "boards/board-1/lists"),
+                ("GET", "boards/board-1/cards"),
                 ("GET", "cards/card-1"),
+                ("GET", "boards/board-1/lists"),
                 ("PUT", "cards/card-1"),
                 ("GET", "cards/card-1"),
             ],
@@ -524,6 +800,28 @@ class TestTrelloTransition(unittest.TestCase):
             fake.calls[1][2],
             {"fields": "id,idBoard,idList,shortLink,idShort"},
         )
+
+    def test_lane_gate_style_human_key_and_trello_aliases_use_native_card(self):
+        for reference in ("MOMO-42", "momo-42", "ABC123", "42"):
+            with self.subTest(reference=reference):
+                fake = self.successful_fake()
+
+                result = self.transition(fake, card_ref=reference)
+
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["card"], "card-1")
+                self.assertEqual(result["requested_card"], reference)
+                self.assertEqual(
+                    [call[:2] for call in fake.calls],
+                    [
+                        ("GET", "boards/board-1/cards"),
+                        ("GET", "cards/card-1"),
+                        ("GET", "boards/board-1/lists"),
+                        ("PUT", "cards/card-1"),
+                        ("GET", "cards/card-1"),
+                    ],
+                )
+                self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
 
     def test_default_cancelled_transition_uses_normalized_lane(self):
         fake = FakeTrello(
@@ -535,16 +833,25 @@ class TestTrelloTransition(unittest.TestCase):
                     "idShort": 42,
                     "idList": "list-old",
                 },
-                {"id": "card-1", "idShort": 42, "idList": "list-cancelled"},
+                {
+                    "id": "card-1",
+                    "idBoard": "board-1",
+                    "idShort": 42,
+                    "idList": "list-cancelled",
+                },
             ],
-            {"id": "card-1", "idList": "list-cancelled"},
+            {
+                "id": "card-1",
+                "idBoard": "board-1",
+                "idList": "list-cancelled",
+            },
         )
 
         result = self.transition(fake, target="cancelled")
 
         self.assertEqual(result["state"], "cancelled")
         self.assertEqual(result["moved_to"], "Cancelled")
-        self.assertEqual(fake.calls[2], (
+        self.assertEqual(fake.calls[3], (
             "PUT",
             "cards/card-1",
             {"idList": "list-cancelled"},
@@ -564,9 +871,18 @@ class TestTrelloTransition(unittest.TestCase):
                     "idShort": 42,
                     "idList": "list-old",
                 },
-                {"id": "card-1", "idShort": 42, "idList": "list-abandoned"},
+                {
+                    "id": "card-1",
+                    "idBoard": "board-1",
+                    "idShort": 42,
+                    "idList": "list-abandoned",
+                },
             ],
-            {"id": "card-1", "idList": "list-abandoned"},
+            {
+                "id": "card-1",
+                "idBoard": "board-1",
+                "idList": "list-abandoned",
+            },
         )
 
         result = self.transition(
@@ -577,7 +893,7 @@ class TestTrelloTransition(unittest.TestCase):
 
         self.assertEqual(result["state"], "cancelled")
         self.assertEqual(result["moved_to"], "Abandoned")
-        self.assertEqual(fake.calls[2][2], {"idList": "list-abandoned"})
+        self.assertEqual(fake.calls[3][2], {"idList": "list-abandoned"})
 
 
 class TestTrelloComment(unittest.TestCase):
@@ -588,18 +904,22 @@ class TestTrelloComment(unittest.TestCase):
         "shortLink": "abc123",
     }
 
-    def comment(self, response):
+    def comment(self, response, card_ref="card-1", cards=None):
+        if cards is None:
+            cards = [trello_board_card()]
         fake = FakeTrello(
             [],
             [dict(self.CARD)],
             {},
             post_response=response,
+            cards=cards,
         )
         result = trello_provider.comment_card(
             fake,
             "board-1",
-            "card-1",
+            card_ref,
             "Finished closeout",
+            "MOMO",
         )
         return result, fake
 
@@ -609,6 +929,7 @@ class TestTrelloComment(unittest.TestCase):
             [dict(self.CARD)],
             {},
             post_response=response,
+            cards=[trello_board_card()],
         )
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
@@ -617,6 +938,7 @@ class TestTrelloComment(unittest.TestCase):
                 "board-1",
                 "card-1",
                 "Finished closeout",
+                "MOMO",
             )
         self.assertIn(expected, stderr.getvalue())
         self.assertEqual(sum(call[0] == "POST" for call in fake.calls), 1)
@@ -627,6 +949,7 @@ class TestTrelloComment(unittest.TestCase):
             [card],
             {},
             post_response={"id": "action-1"},
+            cards=[trello_board_card()],
         )
         stderr = io.StringIO()
 
@@ -636,20 +959,77 @@ class TestTrelloComment(unittest.TestCase):
                 "board-1",
                 "card-1",
                 "Finished closeout",
+                "MOMO",
             )
 
         self.assertIn(expected, stderr.getvalue())
-        self.assertEqual(fake.calls, [(
-            "GET",
-            "cards/card-1",
-            {"fields": "id,idBoard,shortLink,idShort"},
-        )])
+        self.assertEqual(
+            fake.calls,
+            [
+                (
+                    "GET",
+                    "boards/board-1/cards",
+                    {"fields": "id,idBoard,idShort,shortLink"},
+                ),
+                (
+                    "GET",
+                    "cards/card-1",
+                    {"fields": "id,idBoard,shortLink,idShort"},
+                ),
+            ],
+        )
 
     def test_comment_rejects_wrong_board_before_post(self):
         self.assert_comment_scope_error(
             {"id": "card-1", "idBoard": "board-2"},
             "different board",
         )
+
+    def test_external_board_card_fails_before_comment_write(self):
+        fake = FakeTrello(
+            [],
+            [dict(self.CARD)],
+            {},
+            post_response={"id": "action-1"},
+            cards=[trello_board_card(board="external-board")],
+        )
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            trello_provider.comment_card(
+                fake,
+                "board-1",
+                "card-1",
+                "Finished closeout",
+                "MOMO",
+            )
+
+        self.assertIn("external board", stderr.getvalue())
+        self.assertEqual([call[0] for call in fake.calls], ["GET"])
+        self.assertEqual(sum(call[0] == "POST" for call in fake.calls), 0)
+
+    def test_globally_addressable_external_reference_is_not_commentable(self):
+        fake = FakeTrello(
+            [],
+            [dict(self.CARD)],
+            {},
+            post_response={"id": "action-1"},
+            cards=[trello_board_card()],
+        )
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            trello_provider.comment_card(
+                fake,
+                "board-1",
+                "external-card-id",
+                "Finished closeout",
+                "MOMO",
+            )
+
+        self.assertIn("not on configured board", stderr.getvalue())
+        self.assertEqual([call[0] for call in fake.calls], ["GET"])
+        self.assertEqual(sum(call[0] == "POST" for call in fake.calls), 0)
 
     def test_comment_rejects_missing_or_malformed_board_before_post(self):
         for card in (
@@ -717,13 +1097,33 @@ class TestTrelloComment(unittest.TestCase):
         self.assertEqual(
             [call[:2] for call in fake.calls],
             [
+                ("GET", "boards/board-1/cards"),
                 ("GET", "cards/card-1"),
                 ("POST", "cards/card-1/actions/comments"),
             ],
         )
         self.assertEqual(
-            fake.calls[0][2],
+            fake.calls[1][2],
             {"fields": "id,idBoard,shortLink,idShort"},
+        )
+
+    def test_lane_gate_style_human_key_comments_on_resolved_native_card(self):
+        response = {
+            "id": "action-1",
+            "type": "commentCard",
+            "data": {"card": {"id": "card-1"}},
+        }
+
+        result, fake = self.comment(response, card_ref="MOMO-42")
+
+        self.assertEqual(result, "action-1")
+        self.assertEqual(
+            [call[:2] for call in fake.calls],
+            [
+                ("GET", "boards/board-1/cards"),
+                ("GET", "cards/card-1"),
+                ("POST", "cards/card-1/actions/comments"),
+            ],
         )
 
     def test_comment_accepts_id_only_response_when_card_is_not_exposed(self):
@@ -735,13 +1135,18 @@ class TestTrelloComment(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="momo-trello-comment-") as temp:
             root = pathlib.Path(temp)
             (root / ".project.json").write_text(json.dumps({
-                "ticket_provider": {"type": "trello", "board_id": "board-1"},
+                "ticket_provider": {
+                    "type": "trello",
+                    "board_id": "board-1",
+                    "identifier": "MOMO",
+                },
             }))
             fake = FakeTrello(
                 [],
                 [dict(self.CARD)],
                 {},
                 post_response={},
+                cards=[trello_board_card()],
             )
             stdout = io.StringIO()
             stderr = io.StringIO()
@@ -750,7 +1155,7 @@ class TestTrelloComment(unittest.TestCase):
                 "--root",
                 str(root),
                 "comment",
-                "card-1",
+                "MOMO-42",
                 "Finished closeout",
             ]
             with (

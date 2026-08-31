@@ -13,8 +13,8 @@ doctrine is provider-uniform:
     active_milestone                 -> {id, name, state}   (Trello has no cycles; board-as-milestone)
     list_issues                      -> [{id, key, title, state, state_type, list, url, ...}]
     get_issue <id|idShort>           -> {id, key, title, description, acceptance, state, list, comments}
-    comment <native-card-id> <body>  -> prints comment id
-    transition <native-card-id> <state|lane>
+    comment <card-reference> <body>  -> prints comment id
+    transition <card-reference> <state|lane>
                                       -> move to a normalized state or literal lane
 
 Credentials (env): TRELLO_API_KEY (or TRELLO_KEY) + TRELLO_TOKEN.
@@ -204,6 +204,102 @@ def card_identities(payload: dict) -> set[str]:
     }
 
 
+def resolve_card_id(
+    trello: "Trello",
+    board: str,
+    reference: str,
+    identifier: str | None = None,
+) -> str:
+    """Resolve one board-scoped alias to exactly one native Trello card id."""
+    if (
+        not isinstance(board, str)
+        or not board
+        or board != board.strip()
+    ):
+        die("configured Trello board id must be non-blank", 3)
+    if (
+        not isinstance(reference, str)
+        or not reference
+        or reference != reference.strip()
+    ):
+        die("card reference must be a non-blank exact value", 3)
+    if identifier is not None and (
+        not isinstance(identifier, str)
+        or not identifier
+        or identifier != identifier.strip()
+    ):
+        die("configured ticket-provider identifier must be non-blank", 3)
+
+    cards = trello.get(
+        f"boards/{board}/cards",
+        {"fields": "id,idBoard,idShort,shortLink"},
+    )
+    if not isinstance(cards, list):
+        die("board cards response is not an array", 4)
+
+    aliases: dict[str, set[str]] = {}
+    for card in cards:
+        if not isinstance(card, dict):
+            die("board cards response contains a non-object", 4)
+        native_id = card.get("id")
+        if (
+            not isinstance(native_id, str)
+            or not native_id
+            or native_id != native_id.strip()
+        ):
+            die("board card has no valid native id", 4)
+        board_id = card.get("idBoard")
+        if not isinstance(board_id, str) or not board_id:
+            die(f"board card {native_id!r} has no valid idBoard", 4)
+        if board_id != board:
+            die(
+                f"board card {native_id!r} belongs to external board "
+                f"{board_id!r}; expected {board!r}",
+                4,
+            )
+
+        id_short = card.get("idShort")
+        if isinstance(id_short, bool) or not isinstance(id_short, (int, str)):
+            die(f"board card {native_id!r} has no valid idShort", 4)
+        id_short_text = str(id_short)
+        if not id_short_text or id_short_text != id_short_text.strip():
+            die(f"board card {native_id!r} has an empty idShort alias", 4)
+
+        short_link = card.get("shortLink")
+        if (
+            not isinstance(short_link, str)
+            or not short_link
+            or short_link != short_link.strip()
+        ):
+            die(f"board card {native_id!r} has an empty shortLink alias", 4)
+
+        card_aliases = {native_id, id_short_text, short_link}
+        if identifier is not None:
+            card_aliases.add(f"{identifier}-{id_short_text}")
+        for alias in card_aliases:
+            aliases.setdefault(alias.casefold(), set()).add(native_id)
+
+    ambiguous = sorted(
+        (alias, native_ids)
+        for alias, native_ids in aliases.items()
+        if len(native_ids) > 1
+    )
+    if ambiguous:
+        alias, native_ids = ambiguous[0]
+        die(
+            f"duplicate card alias {alias!r} maps to "
+            f"{sorted(native_ids)!r}",
+            3,
+        )
+
+    matches = aliases.get(reference.casefold(), set())
+    if not matches:
+        die(f"card reference {reference!r} is not on configured board {board!r}", 3)
+    if len(matches) != 1:
+        die(f"card reference {reference!r} is ambiguous", 3)
+    return next(iter(matches))
+
+
 def validate_comment_response(payload: object, expected_cards: set[str]) -> str:
     """Prove a comment action exists and belongs to the requested card when stated."""
     if not isinstance(payload, dict):
@@ -268,14 +364,16 @@ def comment_card(
     board: str,
     card_ref: str,
     body: str,
+    identifier: str | None = None,
 ) -> str:
     """Create one comment and return its proven Trello action id."""
+    native_id = resolve_card_id(trello, board, card_ref, identifier)
     card_fields = {"fields": "id,idBoard,shortLink,idShort"}
-    card = trello.get(f"cards/{card_ref}", card_fields)
+    card = trello.get(f"cards/{native_id}", card_fields)
     card_id = validate_card(
         card,
         stage="comment card lookup",
-        expected_id=card_ref,
+        expected_id=native_id,
         expected_board=board,
     )
     expected_cards = card_identities(card)
@@ -293,8 +391,19 @@ def transition_card(
     target: str,
     config: dict,
     lm: dict,
+    identifier: str | None = None,
 ) -> dict:
     """Move one card once, then prove the exact card and list via live readback."""
+    native_id = resolve_card_id(trello, board, card_ref, identifier)
+    card_fields = {"fields": "id,idBoard,idList,shortLink,idShort"}
+    before = trello.get(f"cards/{native_id}", card_fields)
+    card_id = validate_card(
+        before,
+        stage="card lookup",
+        expected_id=native_id,
+        expected_board=board,
+    )
+
     live_lists = trello.get(f"boards/{board}/lists", {"fields": "name"})
     if target in _NORMALIZED_STATES:
         configured_lane = write_target(config, lm, target)
@@ -302,20 +411,12 @@ def transition_card(
         configured_lane = target
     target_list = resolve_target_list(live_lists, configured_lane)
 
-    card_fields = {"fields": "id,idBoard,idList,shortLink,idShort"}
-    before = trello.get(f"cards/{card_ref}", card_fields)
-    card_id = validate_card(
-        before,
-        stage="card lookup",
-        expected_id=card_ref,
-        expected_board=board,
-    )
-
     updated = trello.put(f"cards/{card_id}", {"idList": target_list["id"]})
     validate_card(
         updated,
         stage="PUT response",
         expected_id=card_id,
+        expected_board=board,
         expected_list=target_list["id"],
     )
 
@@ -324,6 +425,7 @@ def transition_card(
         readback,
         stage="GET readback",
         expected_id=card_id,
+        expected_board=board,
         expected_list=target_list["id"],
     )
 
@@ -402,6 +504,7 @@ def main() -> int:
     lm = lane_map(config)
     tp = (project.get("ticket_provider") or {}) if isinstance(project, dict) else {}
     board = board_override or os.environ.get("TRELLO_BOARD_ID") or tp.get("board_id")
+    identifier = tp.get("identifier")
     if not board:
         die("no board id (--board-id, $TRELLO_BOARD_ID, or .project.json ticket_provider.board_id)", 2)
 
@@ -470,13 +573,27 @@ def main() -> int:
         })
     elif op == "comment":
         if len(args) < 2:
-            die("comment needs <native-card-id> <body>")
-        print(comment_card(t, board, args[0], " ".join(args[1:])))
+            die("comment needs <card-reference> <body>")
+        print(comment_card(
+            t,
+            board,
+            args[0],
+            " ".join(args[1:]),
+            identifier,
+        ))
     elif op == "transition":
         if len(args) < 2:
-            die("transition needs <native-card-id> <state|lane>")
+            die("transition needs <card-reference> <state|lane>")
         card_ref, target = args[0], args[1]
-        emit(transition_card(t, board, card_ref, target, config, lm))
+        emit(transition_card(
+            t,
+            board,
+            card_ref,
+            target,
+            config,
+            lm,
+            identifier,
+        ))
     else:
         die(f"unknown op {op!r}. Ops: resolve|active_milestone|list_issues|get_issue|comment|transition")
     return 0
