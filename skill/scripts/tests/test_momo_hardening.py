@@ -314,15 +314,19 @@ class TestLaneGate(unittest.TestCase):
 
 
 class FakeTrello:
-    def __init__(self, lists, card_gets, put_response):
+    def __init__(self, lists, card_gets, put_response, post_response=None, cards=None):
         self.lists = lists
         self.card_gets = list(card_gets)
         self.put_response = put_response
+        self.post_response = post_response
+        self.cards = cards
         self.calls = []
 
     def get(self, path, extra=None):
         self.calls.append(("GET", path, extra))
         if path.startswith("boards/"):
+            if path.endswith("/cards") and self.cards is not None:
+                return self.cards
             return self.lists
         if path.startswith("cards/") and self.card_gets:
             return self.card_gets.pop(0)
@@ -332,16 +336,21 @@ class FakeTrello:
         self.calls.append(("PUT", path, extra))
         return self.put_response
 
+    def post(self, path, extra=None):
+        self.calls.append(("POST", path, extra))
+        return self.post_response
+
 
 class TestTrelloTransition(unittest.TestCase):
-    def transition(self, fake, card_ref="42"):
+    def transition(self, fake, card_ref="42", target="completed", config=None):
+        config = config or {}
         return trello_provider.transition_card(
             fake,
             "board-1",
             card_ref,
-            "completed",
-            {},
-            trello_provider.lane_map({}),
+            target,
+            config,
+            trello_provider.lane_map(config),
         )
 
     def assert_transition_error(self, fake, expected):
@@ -452,6 +461,224 @@ class TestTrelloTransition(unittest.TestCase):
             ],
         )
         self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
+
+    def test_default_cancelled_transition_uses_normalized_lane(self):
+        fake = FakeTrello(
+            [{"id": "list-cancelled", "name": "Cancelled"}],
+            [
+                {"id": "card-1", "idShort": 42, "idList": "list-old"},
+                {"id": "card-1", "idShort": 42, "idList": "list-cancelled"},
+            ],
+            {"id": "card-1", "idList": "list-cancelled"},
+        )
+
+        result = self.transition(fake, target="cancelled")
+
+        self.assertEqual(result["state"], "cancelled")
+        self.assertEqual(result["moved_to"], "Cancelled")
+        self.assertEqual(fake.calls[2], (
+            "PUT",
+            "cards/card-1",
+            {"idList": "list-cancelled"},
+        ))
+
+    def test_custom_cancelled_transition_honors_write_mapping(self):
+        config = {
+            "lanes": {"cancelled": ["Abandoned"]},
+            "write_targets": {"cancelled": "Abandoned"},
+        }
+        fake = FakeTrello(
+            [{"id": "list-abandoned", "name": "Abandoned"}],
+            [
+                {"id": "card-1", "idShort": 42, "idList": "list-old"},
+                {"id": "card-1", "idShort": 42, "idList": "list-abandoned"},
+            ],
+            {"id": "card-1", "idList": "list-abandoned"},
+        )
+
+        result = self.transition(
+            fake,
+            target="cancelled",
+            config=config,
+        )
+
+        self.assertEqual(result["state"], "cancelled")
+        self.assertEqual(result["moved_to"], "Abandoned")
+        self.assertEqual(fake.calls[2][2], {"idList": "list-abandoned"})
+
+
+class TestTrelloComment(unittest.TestCase):
+    CARD = {
+        "id": "card-1",
+        "idShort": 42,
+        "shortLink": "abc123",
+    }
+
+    def comment(self, response):
+        fake = FakeTrello(
+            [],
+            [dict(self.CARD)],
+            {},
+            post_response=response,
+        )
+        result = trello_provider.comment_card(fake, "42", "Finished closeout")
+        return result, fake
+
+    def assert_comment_error(self, response, expected):
+        fake = FakeTrello(
+            [],
+            [dict(self.CARD)],
+            {},
+            post_response=response,
+        )
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            trello_provider.comment_card(fake, "42", "Finished closeout")
+        self.assertIn(expected, stderr.getvalue())
+        self.assertEqual(sum(call[0] == "POST" for call in fake.calls), 1)
+
+    def test_comment_rejects_empty_malformed_or_missing_id_response(self):
+        invalid = (
+            (None, "action object"),
+            ([], "action object"),
+            ({}, "no action id"),
+            ({"comment": {"id": "action-1"}}, "no action id"),
+            ({"id": ""}, "no action id"),
+            ({"id": 123}, "no action id"),
+            ({"id": "action-1", "type": "updateCard"}, "action type"),
+            ({"id": "action-1", "data": "wrong"}, "data envelope"),
+            ({"id": "action-1", "data": {"card": {}}}, "no identity"),
+        )
+        for response, expected in invalid:
+            with self.subTest(response=response):
+                self.assert_comment_error(response, expected)
+
+    def test_comment_rejects_wrong_exposed_card(self):
+        wrong_cards = (
+            {"id": "action-1", "idCard": "card-2"},
+            {"id": "action-1", "card": {"id": "card-2"}},
+            {"id": "action-1", "data": {"card": {"id": "card-2"}}},
+            {
+                "id": "action-1",
+                "data": {"card": {"id": "card-2", "idShort": 42}},
+            },
+        )
+        for response in wrong_cards:
+            with self.subTest(response=response):
+                self.assert_comment_error(response, "different card")
+
+    def test_comment_returns_only_proven_action_id(self):
+        response = {
+            "id": "action-1",
+            "type": "commentCard",
+            "data": {"card": {"id": "card-1", "idShort": 42}},
+        }
+
+        result, fake = self.comment(response)
+
+        self.assertEqual(result, "action-1")
+        self.assertEqual(
+            [call[:2] for call in fake.calls],
+            [
+                ("GET", "cards/42"),
+                ("POST", "cards/card-1/actions/comments"),
+            ],
+        )
+
+    def test_comment_accepts_id_only_response_when_card_is_not_exposed(self):
+        result, _fake = self.comment({"id": "action-1"})
+
+        self.assertEqual(result, "action-1")
+
+    def test_comment_cli_prints_nothing_until_response_is_proven(self):
+        with tempfile.TemporaryDirectory(prefix="momo-trello-comment-") as temp:
+            root = pathlib.Path(temp)
+            (root / ".project.json").write_text(json.dumps({
+                "ticket_provider": {"type": "trello", "board_id": "board-1"},
+            }))
+            fake = FakeTrello(
+                [],
+                [dict(self.CARD)],
+                {},
+                post_response={},
+            )
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            argv = [
+                "trello.py",
+                "--root",
+                str(root),
+                "comment",
+                "42",
+                "Finished closeout",
+            ]
+            with (
+                mock.patch.object(trello_provider.sys, "argv", argv),
+                mock.patch.object(
+                    trello_provider,
+                    "creds",
+                    return_value=("key", "token"),
+                ),
+                mock.patch.object(trello_provider, "Trello", return_value=fake),
+                contextlib.redirect_stdout(stdout),
+                contextlib.redirect_stderr(stderr),
+                self.assertRaises(SystemExit),
+            ):
+                trello_provider.main()
+
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertIn("no action id", stderr.getvalue())
+
+
+class TestTrelloCancelledClassification(unittest.TestCase):
+    def run_list_issues(self, config):
+        with tempfile.TemporaryDirectory(prefix="momo-trello-list-") as temp:
+            root = pathlib.Path(temp)
+            (root / ".project.json").write_text(json.dumps({
+                "ticket_provider": {"type": "trello", "board_id": "board-1"},
+            }))
+            if config:
+                momo = root / ".momo"
+                momo.mkdir()
+                (momo / "config.json").write_text(json.dumps(config))
+
+            lane = "Abandoned" if config else "Cancelled"
+            fake = FakeTrello(
+                [{"id": "list-cancelled", "name": lane}],
+                [],
+                {},
+                cards=[{
+                    "id": "card-1",
+                    "name": "Cancelled work",
+                    "idList": "list-cancelled",
+                    "shortLink": "abc123",
+                }],
+            )
+            stdout = io.StringIO()
+            argv = ["trello.py", "--root", str(root), "list_issues"]
+            with (
+                mock.patch.object(trello_provider.sys, "argv", argv),
+                mock.patch.object(trello_provider, "creds", return_value=("key", "token")),
+                mock.patch.object(trello_provider, "Trello", return_value=fake),
+                contextlib.redirect_stdout(stdout),
+            ):
+                self.assertEqual(trello_provider.main(), 0)
+            return json.loads(stdout.getvalue())
+
+    def test_list_issues_classifies_default_cancelled_lane(self):
+        rows = self.run_list_issues({})
+
+        self.assertEqual(rows[0]["state"], "cancelled")
+        self.assertEqual(rows[0]["state_type"], "cancelled")
+
+    def test_list_issues_classifies_custom_cancelled_lane(self):
+        rows = self.run_list_issues({
+            "lanes": {"cancelled": ["Abandoned"]},
+            "write_targets": {"cancelled": "Abandoned"},
+        })
+
+        self.assertEqual(rows[0]["state"], "cancelled")
+        self.assertEqual(rows[0]["list"], "Abandoned")
 
 
 class TestEvidenceCapture(unittest.TestCase):

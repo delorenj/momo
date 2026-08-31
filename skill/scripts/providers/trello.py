@@ -41,6 +41,7 @@ _STANDARD_LANES = {
     "started": ["In Progress"],
     "in_review": ["Review"],
     "completed": ["Done"],
+    "cancelled": ["Cancelled"],
 }
 _NORMALIZED_STATES = list(_STANDARD_LANES)
 
@@ -64,7 +65,8 @@ def find_root(start: str) -> str:
 def load_project(root: str) -> dict:
     path = os.path.join(root, ".project.json")
     try:
-        return json.loads(open(path, encoding="utf-8").read())
+        with open(path, encoding="utf-8") as stream:
+            return json.load(stream)
     except Exception:
         return {}
 
@@ -74,7 +76,8 @@ def load_config(root: str) -> dict:
     if not os.path.isfile(path):
         return {}
     try:
-        return json.loads(open(path, encoding="utf-8").read())
+        with open(path, encoding="utf-8") as stream:
+            return json.load(stream)
     except Exception as e:
         die(f"invalid .momo/config.json: {e}")
 
@@ -95,7 +98,14 @@ def write_target(config: dict, lm: dict, state: str) -> str:
 
 def state_for_lane(lane: str, lm: dict) -> str:
     folded = lane.casefold()
-    for state in ("completed", "in_review", "started", "unstarted", "backlog"):
+    for state in (
+        "completed",
+        "cancelled",
+        "in_review",
+        "started",
+        "unstarted",
+        "backlog",
+    ):
         if any(
             isinstance(candidate, str) and candidate.casefold() == folded
             for candidate in lm[state]
@@ -184,6 +194,91 @@ def validate_card(
             4,
         )
     return card_id
+
+
+def card_identities(payload: dict) -> set[str]:
+    """Return every stable Trello identity exposed by a card object."""
+    return {
+        str(value)
+        for value in (
+            payload.get("id"),
+            payload.get("idShort"),
+            payload.get("shortLink"),
+        )
+        if value is not None and str(value)
+    }
+
+
+def validate_comment_response(payload: object, expected_cards: set[str]) -> str:
+    """Prove a comment action exists and belongs to the requested card when stated."""
+    if not isinstance(payload, dict):
+        die("comment response did not return an action object", 4)
+
+    action_id = payload.get("id")
+    if not isinstance(action_id, str) or not action_id.strip():
+        die("comment response returned no action id", 4)
+
+    action_type = payload.get("type")
+    if action_type is not None and action_type != "commentCard":
+        die(f"comment response returned unexpected action type {action_type!r}", 4)
+
+    exposed_cards: set[str] = set()
+    identity_envelopes = 0
+
+    top_id_card = payload.get("idCard")
+    if top_id_card is not None:
+        identity_envelopes += 1
+        exposed_cards.add(str(top_id_card))
+
+    top_card = payload.get("card")
+    if top_card is not None:
+        identity_envelopes += 1
+        if not isinstance(top_card, dict):
+            die("comment response card envelope is malformed", 4)
+        identities = card_identities(top_card)
+        if not identities:
+            die("comment response card envelope has no identity", 4)
+        exposed_cards.update(identities)
+
+    data = payload.get("data")
+    if data is not None:
+        if not isinstance(data, dict):
+            die("comment response data envelope is malformed", 4)
+        data_id_card = data.get("idCard")
+        if data_id_card is not None:
+            identity_envelopes += 1
+            exposed_cards.add(str(data_id_card))
+        data_card = data.get("card")
+        if data_card is not None:
+            identity_envelopes += 1
+            if not isinstance(data_card, dict):
+                die("comment response data.card envelope is malformed", 4)
+            identities = card_identities(data_card)
+            if not identities:
+                die("comment response data.card envelope has no identity", 4)
+            exposed_cards.update(identities)
+
+    if identity_envelopes and not exposed_cards.issubset(expected_cards):
+        die(
+            "comment response belongs to a different card: "
+            f"got {sorted(exposed_cards)!r}, expected one of "
+            f"{sorted(expected_cards)!r}",
+            4,
+        )
+    return action_id.strip()
+
+
+def comment_card(trello: "Trello", card_ref: str, body: str) -> str:
+    """Create one comment and return its proven Trello action id."""
+    card_fields = {"fields": "id,shortLink,idShort"}
+    card = trello.get(f"cards/{card_ref}", card_fields)
+    card_id = validate_card(card, stage="comment card lookup", expected_ref=card_ref)
+    expected_cards = card_identities(card)
+    response = trello.post(
+        f"cards/{card_id}/actions/comments",
+        {"text": body},
+    )
+    return validate_comment_response(response, expected_cards)
 
 
 def transition_card(
@@ -338,7 +433,15 @@ def main() -> int:
                 "updated_at": c.get("dateLastActivity", ""), "assignee": c.get("idMembers", []),
                 "url": c.get("url", ""),
             })
-        order = {"started": 0, "in_review": 1, "unstarted": 2, "backlog": 3, "completed": 4, "other": 5}
+        order = {
+            "started": 0,
+            "in_review": 1,
+            "unstarted": 2,
+            "backlog": 3,
+            "completed": 4,
+            "cancelled": 5,
+            "other": 6,
+        }
         rows.sort(key=lambda r: (order.get(r["state"], 9), r["list"], r["title"]))
         emit(rows)
     elif op == "get_issue":
@@ -362,8 +465,7 @@ def main() -> int:
     elif op == "comment":
         if len(args) < 2:
             die("comment needs <id|idShort> <body>")
-        res = t.post(f"cards/{args[0]}/actions/comments", {"text": " ".join(args[1:])})
-        print(res.get("id", ""))
+        print(comment_card(t, args[0], " ".join(args[1:])))
     elif op == "transition":
         if len(args) < 2:
             die("transition needs <id|idShort> <state|lane>")
