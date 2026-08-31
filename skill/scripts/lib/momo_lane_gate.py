@@ -77,15 +77,29 @@ class LaneGate:
             ("pass" if ok else (result.stderr or result.stdout or "fail")).strip(),
         )
 
-    def gate_autonomous_review(self, review_file: Path | None = None) -> GateResult:
+    def gate_autonomous_review(
+        self,
+        review_file: Path | None = None,
+        *,
+        close: bool = False,
+    ) -> GateResult:
         script = self.sentinel_bin / "issue-autonomous-review.sh"
         if not script.is_file():
             return GateResult("autonomous_review", False, f"missing {script}")
         out = review_file or (self.root / f"{self.issue}.review.md")
-        result = self._run([str(script), self.issue, str(out)])
+        command = [str(script), self.issue, str(out)]
+        if close:
+            command.append("--close")
+        result = self._run(command)
         # Exit 0 = accepted, 3 = held/disabled, 2 = missing inputs, 1 = transition failed
         ok = result.returncode == 0
-        detail = (result.stderr or result.stdout or "no output").strip().splitlines()[-1] if not ok else "accepted"
+        if ok:
+            detail = "accepted and completed" if close else "accepted"
+        else:
+            # Prefer the failure channel and preserve its full diagnostic.  In
+            # particular, a required comment failure must not be hidden behind
+            # earlier acceptance-shaped stdout from the canonical authority.
+            detail = (result.stderr or result.stdout or "no output").strip()
         return GateResult("autonomous_review", ok, detail)
 
     def transition(self, target: str) -> subprocess.CompletedProcess[str]:
@@ -102,7 +116,11 @@ class LaneGate:
         results.append(self.gate_tree_lock())
         results.append(self.gate_close())
         if target == "completed" and require_review:
-            results.append(self.gate_autonomous_review(review_file))
+            # The canonical autonomous-review command owns the completed
+            # transition and its acceptance comment as one operation.  Calling
+            # it without --close and then transitioning here would create two
+            # authorities and could report acceptance for a failed transition.
+            results.append(self.gate_autonomous_review(review_file, close=True))
 
         failed = [r for r in results if not r.passed]
         if failed:
@@ -111,6 +129,18 @@ class LaneGate:
                 "target": target,
                 "allowed": False,
                 "gates": [{"gate": r.gate, "passed": r.passed, "detail": r.detail} for r in results],
+            }
+
+        if target == "completed" and require_review:
+            return {
+                "issue": self.issue,
+                "target": target,
+                "allowed": True,
+                "transition_authority": "autonomous_review",
+                "gates": [
+                    {"gate": r.gate, "passed": r.passed, "detail": r.detail}
+                    for r in results
+                ],
             }
 
         trans = self.transition(target)

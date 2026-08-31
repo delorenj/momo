@@ -4,6 +4,9 @@
 Run: python3 momo/skill/scripts/tests/test_momo_hardening.py
 """
 import json
+import contextlib
+import importlib.util
+import io
 import os
 import shutil
 import subprocess
@@ -11,12 +14,23 @@ import sys
 import tempfile
 import pathlib
 import unittest
+from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parents[4]  # 33GOD root
 LIB = ROOT / "momo" / "skill" / "scripts" / "lib"
 SCRIPTS = ROOT / "momo" / "skill" / "scripts"
 
 sys.path.insert(0, str(LIB))
+
+from momo_lane_gate import GateResult, LaneGate
+
+TRELLO_SPEC = importlib.util.spec_from_file_location(
+    "momo_trello_provider",
+    SCRIPTS / "providers" / "trello.py",
+)
+assert TRELLO_SPEC is not None and TRELLO_SPEC.loader is not None
+trello_provider = importlib.util.module_from_spec(TRELLO_SPEC)
+TRELLO_SPEC.loader.exec_module(trello_provider)
 
 
 def run_cli(script: str, *args, cwd=None, env=None):
@@ -166,6 +180,29 @@ class TestReporter(unittest.TestCase):
 class TestLaneGate(unittest.TestCase):
     """33GPM-7: Gated lane transitions."""
 
+    def make_gate(self, temp: str) -> LaneGate:
+        root = pathlib.Path(temp)
+        script = (
+            root
+            / "agents"
+            / "hermes"
+            / "pm"
+            / ".scripts"
+            / "sentinel"
+            / "bin"
+            / "issue-autonomous-review.sh"
+        )
+        script.parent.mkdir(parents=True)
+        script.touch()
+        gate = LaneGate(root, "T-1")
+        gate.gate_tree_lock = mock.Mock(
+            return_value=GateResult("tree_lock", True, "pass")
+        )
+        gate.gate_close = mock.Mock(
+            return_value=GateResult("close_gate", True, "pass")
+        )
+        return gate
+
     def test_gate_blocks_without_evidence(self):
         rc, out, err = run_cli("momo-lane-gate.py", "--issue", "NONEXISTENT-1", "--target", "completed", "--no-review")
         self.assertNotEqual(rc, 0)
@@ -178,6 +215,243 @@ class TestLaneGate(unittest.TestCase):
         # gate prints JSON to stdout even on failure
         data = json.loads(out)
         self.assertFalse(data["allowed"])
+
+    def test_completed_review_is_single_close_authority(self):
+        with tempfile.TemporaryDirectory(prefix="momo-lane-test-") as temp:
+            gate = self.make_gate(temp)
+            review = pathlib.Path(temp) / "T-1.review.md"
+            gate._run = mock.Mock(
+                return_value=subprocess.CompletedProcess(
+                    [], 0, stdout="AUTONOMOUS REVIEW: ACCEPTED\n", stderr=""
+                )
+            )
+            gate.transition = mock.Mock()
+
+            result = gate.run("completed", review_file=review)
+
+            self.assertTrue(result["allowed"])
+            self.assertEqual(result["transition_authority"], "autonomous_review")
+            gate._run.assert_called_once_with(
+                [
+                    str(gate.sentinel_bin / "issue-autonomous-review.sh"),
+                    "T-1",
+                    str(review),
+                    "--close",
+                ]
+            )
+            gate.transition.assert_not_called()
+            self.assertNotIn("stays in the review lane", json.dumps(result).lower())
+
+    def test_completed_transition_failure_is_not_accepted_or_retried(self):
+        with tempfile.TemporaryDirectory(prefix="momo-lane-test-") as temp:
+            gate = self.make_gate(temp)
+            gate._run = mock.Mock(
+                return_value=subprocess.CompletedProcess(
+                    [], 1, stdout="", stderr="adapter transition failed"
+                )
+            )
+            gate.transition = mock.Mock()
+
+            result = gate.run("completed")
+
+            self.assertFalse(result["allowed"])
+            self.assertIn("adapter transition failed", json.dumps(result))
+            self.assertNotIn("accepted", json.dumps(result).lower())
+            gate.transition.assert_not_called()
+            gate._run.assert_called_once()
+
+    def test_completed_comment_failure_remains_explicit(self):
+        with tempfile.TemporaryDirectory(prefix="momo-lane-test-") as temp:
+            gate = self.make_gate(temp)
+            gate._run = mock.Mock(
+                return_value=subprocess.CompletedProcess(
+                    [],
+                    1,
+                    stdout="AUTONOMOUS REVIEW: ACCEPTED\n",
+                    stderr="required acceptance comment failed",
+                )
+            )
+            gate.transition = mock.Mock()
+
+            result = gate.run("completed")
+
+            rendered = json.dumps(result).lower()
+            self.assertFalse(result["allowed"])
+            self.assertIn("required acceptance comment failed", rendered)
+            self.assertNotIn("autonomous review: accepted", rendered)
+            self.assertNotIn("stays in the review lane", rendered)
+            gate.transition.assert_not_called()
+
+    def test_review_lane_reports_success_only_after_transition(self):
+        with tempfile.TemporaryDirectory(prefix="momo-lane-test-") as temp:
+            gate = self.make_gate(temp)
+            gate.transition = mock.Mock(
+                return_value=subprocess.CompletedProcess(
+                    [], 0, stdout='{"ok":true}', stderr=""
+                )
+            )
+
+            result = gate.run("in_review")
+
+            self.assertTrue(result["allowed"])
+            gate.transition.assert_called_once_with("in_review")
+            self.assertNotIn("accepted", json.dumps(result).lower())
+
+    def test_review_lane_transition_failure_has_no_acceptance(self):
+        with tempfile.TemporaryDirectory(prefix="momo-lane-test-") as temp:
+            gate = self.make_gate(temp)
+            gate.transition = mock.Mock(
+                return_value=subprocess.CompletedProcess(
+                    [], 1, stdout="", stderr="transition failed"
+                )
+            )
+
+            result = gate.run("in_review")
+
+            self.assertFalse(result["allowed"])
+            self.assertIn("transition failed", result["adapter_error"])
+            self.assertNotIn("accepted", json.dumps(result).lower())
+
+
+class FakeTrello:
+    def __init__(self, lists, card_gets, put_response):
+        self.lists = lists
+        self.card_gets = list(card_gets)
+        self.put_response = put_response
+        self.calls = []
+
+    def get(self, path, extra=None):
+        self.calls.append(("GET", path, extra))
+        if path.startswith("boards/"):
+            return self.lists
+        if path.startswith("cards/") and self.card_gets:
+            return self.card_gets.pop(0)
+        raise AssertionError(f"unexpected GET {path}")
+
+    def put(self, path, extra=None):
+        self.calls.append(("PUT", path, extra))
+        return self.put_response
+
+
+class TestTrelloTransition(unittest.TestCase):
+    def transition(self, fake, card_ref="42"):
+        return trello_provider.transition_card(
+            fake,
+            "board-1",
+            card_ref,
+            "completed",
+            {},
+            trello_provider.lane_map({}),
+        )
+
+    def assert_transition_error(self, fake, expected):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            self.transition(fake)
+        self.assertIn(expected, stderr.getvalue())
+
+    def test_duplicate_exact_or_casefold_lane_is_rejected_without_put(self):
+        for names in (("Done", "Done"), ("Done", "done")):
+            with self.subTest(names=names):
+                fake = FakeTrello(
+                    [
+                        {"id": "list-1", "name": names[0]},
+                        {"id": "list-2", "name": names[1]},
+                    ],
+                    [],
+                    {},
+                )
+
+                self.assert_transition_error(fake, "duplicate live lanes")
+
+                self.assertFalse(any(call[0] == "PUT" for call in fake.calls))
+
+    def test_wrong_put_response_fails_before_readback(self):
+        wrong_responses = (
+            {},
+            {"id": "different-card", "idList": "list-done"},
+            {"id": "card-1", "idList": "different-list"},
+        )
+        for response in wrong_responses:
+            with self.subTest(response=response):
+                fake = FakeTrello(
+                    [{"id": "list-done", "name": "Done"}],
+                    [
+                        {"id": "card-1", "idShort": 42, "idList": "list-old"},
+                        {"id": "card-1", "idShort": 42, "idList": "list-done"},
+                    ],
+                    response,
+                )
+
+                self.assert_transition_error(fake, "PUT response")
+
+                self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
+                self.assertEqual(len(fake.card_gets), 1)
+
+    def test_wrong_or_missing_readback_fails_without_ok(self):
+        wrong_readbacks = (
+            {},
+            {"id": "different-card", "idShort": 42, "idList": "list-done"},
+            {"id": "card-1", "idShort": 42, "idList": "different-list"},
+        )
+        for readback in wrong_readbacks:
+            with self.subTest(readback=readback):
+                fake = FakeTrello(
+                    [{"id": "list-done", "name": "Done"}],
+                    [
+                        {"id": "card-1", "idShort": 42, "idList": "list-old"},
+                        readback,
+                    ],
+                    {"id": "card-1", "idList": "list-done"},
+                )
+
+                self.assert_transition_error(fake, "GET readback")
+
+                self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
+
+    def test_exact_transition_puts_once_and_reads_back_same_card(self):
+        fake = FakeTrello(
+            [{"id": "list-done", "name": "Done"}],
+            [
+                {
+                    "id": "card-1",
+                    "idShort": 42,
+                    "shortLink": "abc123",
+                    "idList": "list-old",
+                },
+                {
+                    "id": "card-1",
+                    "idShort": 42,
+                    "shortLink": "abc123",
+                    "idList": "list-done",
+                },
+            ],
+            {"id": "card-1", "idList": "list-done"},
+        )
+
+        result = self.transition(fake)
+
+        self.assertEqual(
+            result,
+            {
+                "ok": True,
+                "card": "card-1",
+                "requested_card": "42",
+                "target": "completed",
+                "moved_to": "Done",
+                "state": "completed",
+            },
+        )
+        self.assertEqual(
+            [call[:2] for call in fake.calls],
+            [
+                ("GET", "boards/board-1/lists"),
+                ("GET", "cards/42"),
+                ("PUT", "cards/card-1"),
+                ("GET", "cards/card-1"),
+            ],
+        )
+        self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
 
 
 class TestEvidenceCapture(unittest.TestCase):
