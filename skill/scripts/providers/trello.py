@@ -223,12 +223,18 @@ def resolve_card_id(
         or reference != reference.strip()
     ):
         die("card reference must be a non-blank exact value", 3)
-    if identifier is not None and (
-        not isinstance(identifier, str)
-        or not identifier
-        or identifier != identifier.strip()
-    ):
-        die("configured ticket-provider identifier must be non-blank", 3)
+    normalized_identifier: str | None = None
+    if identifier is not None:
+        if not isinstance(identifier, str):
+            die("configured ticket-provider identifier must be a string", 3)
+        stripped_identifier = identifier.strip()
+        if stripped_identifier:
+            if stripped_identifier != identifier:
+                die(
+                    "configured ticket-provider identifier must be an exact value",
+                    3,
+                )
+            normalized_identifier = identifier
 
     cards = trello.get(
         f"boards/{board}/cards",
@@ -274,8 +280,8 @@ def resolve_card_id(
             die(f"board card {native_id!r} has an empty shortLink alias", 4)
 
         card_aliases = {native_id, id_short_text, short_link}
-        if identifier is not None:
-            card_aliases.add(f"{identifier}-{id_short_text}")
+        if normalized_identifier is not None:
+            card_aliases.add(f"{normalized_identifier}-{id_short_text}")
         for alias in card_aliases:
             aliases.setdefault(alias.casefold(), set()).add(native_id)
 

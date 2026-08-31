@@ -398,6 +398,32 @@ class TestTrelloCardResolution(unittest.TestCase):
                 self.assert_resolution_error(fake, reference, "non-blank exact")
                 self.assertEqual(fake.calls, [])
 
+    def test_blank_optional_identifier_adds_no_project_alias(self):
+        for identifier in (None, "", " "):
+            with self.subTest(identifier=identifier):
+                fake = FakeTrello([], [], {}, cards=[trello_board_card()])
+
+                self.assertEqual(
+                    self.resolve(fake, "abc123", identifier=identifier),
+                    "card-1",
+                )
+                self.assertEqual([call[0] for call in fake.calls], ["GET"])
+
+    def test_non_string_or_padded_nonblank_identifier_is_config_invalid(self):
+        for identifier in (42, True, ["MOMO"], " MOMO "):
+            with self.subTest(identifier=identifier):
+                fake = FakeTrello([], [], {}, cards=[trello_board_card()])
+                stderr = io.StringIO()
+
+                with (
+                    contextlib.redirect_stderr(stderr),
+                    self.assertRaises(SystemExit),
+                ):
+                    self.resolve(fake, "abc123", identifier=identifier)
+
+                self.assertIn("configured ticket-provider identifier", stderr.getvalue())
+                self.assertEqual(fake.calls, [])
+
     def test_no_match_fails_after_board_read_only_lookup(self):
         fake = FakeTrello([], [], {}, cards=[trello_board_card()])
 
@@ -822,6 +848,55 @@ class TestTrelloTransition(unittest.TestCase):
                     ],
                 )
                 self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
+
+    def test_cli_blank_identifier_allows_board_scoped_shortlink_transition(self):
+        with tempfile.TemporaryDirectory(prefix="momo-trello-transition-") as temp:
+            root = pathlib.Path(temp)
+            (root / ".project.json").write_text(json.dumps({
+                "ticket_provider": {
+                    "type": "trello",
+                    "board_id": "board-1",
+                    "identifier": "",
+                },
+            }))
+            fake = self.successful_fake()
+            stdout = io.StringIO()
+            argv = [
+                "trello.py",
+                "--root",
+                str(root),
+                "transition",
+                "abc123",
+                "completed",
+            ]
+
+            with (
+                mock.patch.object(trello_provider.sys, "argv", argv),
+                mock.patch.object(
+                    trello_provider,
+                    "creds",
+                    return_value=("key", "token"),
+                ),
+                mock.patch.object(trello_provider, "Trello", return_value=fake),
+                contextlib.redirect_stdout(stdout),
+            ):
+                self.assertEqual(trello_provider.main(), 0)
+
+            result = json.loads(stdout.getvalue())
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["card"], "card-1")
+            self.assertEqual(result["requested_card"], "abc123")
+            self.assertEqual(
+                [call[:2] for call in fake.calls],
+                [
+                    ("GET", "boards/board-1/cards"),
+                    ("GET", "cards/card-1"),
+                    ("GET", "boards/board-1/lists"),
+                    ("PUT", "cards/card-1"),
+                    ("GET", "cards/card-1"),
+                ],
+            )
+            self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
 
     def test_default_cancelled_transition_uses_normalized_lane(self):
         fake = FakeTrello(
