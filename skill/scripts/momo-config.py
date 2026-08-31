@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """momo-config — per-repo Momo board config (.momo/config.json) + lane detection.
 
-Momo's normalized stages are `backlog | unstarted | started | in_review | completed`,
+Momo's normalized stages are
+`backlog | unstarted | started | in_review | completed | cancelled`,
 but a repo's kanban columns rarely match 1:1. This tool lets Momo learn a repo's real
 lanes ONCE and codify the mapping locally, so the shared board adapter stays generic
 and the per-repo lanes are just data.
@@ -28,7 +29,16 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-STATES = ["backlog", "unstarted", "started", "in_review", "completed"]
+PROVIDERS = os.path.join(HERE, "providers")
+sys.path.insert(0, PROVIDERS)
+
+from trello import (  # type: ignore[import]  # noqa: E402
+    ConfigError,
+    NORMALIZED_STATES,
+    validate_lane_config,
+)
+
+STATES = list(NORMALIZED_STATES)
 
 
 def provider_resolve(root: str) -> dict:
@@ -85,27 +95,31 @@ def cmd_show(root: str) -> int:
 def cmd_set(root: str, lanes: str, write_targets: str | None, notes: str | None) -> int:
     try:
         lanes_obj = json.loads(lanes)
-    except Exception as e:
-        sys.stderr.write(f"momo-config: --lanes is not valid JSON: {e}\n")
+        cfg = {
+            "provider": "trello",
+            "lanes": lanes_obj,
+        }
+        if write_targets is not None:
+            cfg["write_targets"] = json.loads(write_targets)
+        if notes is not None:
+            notes_obj = json.loads(notes)
+            if not isinstance(notes_obj, dict):
+                raise ConfigError("lane_notes must be an object of lane -> note")
+            for lane, note in notes_obj.items():
+                if (
+                    not isinstance(lane, str)
+                    or not lane
+                    or lane != lane.strip()
+                ):
+                    raise ConfigError("lane_notes keys must be non-blank exact strings")
+                if not isinstance(note, str):
+                    raise ConfigError(f"lane_notes[{lane!r}] must be a string")
+            cfg["lane_notes"] = notes_obj
+        validate_lane_config(cfg)
+    except (ValueError, TypeError) as exc:
+        sys.stderr.write(f"momo-config: invalid configuration: {exc}\n")
         return 2
-    if not isinstance(lanes_obj, dict):
-        sys.stderr.write("momo-config: --lanes must be a JSON object of state -> [lane, ...]\n")
-        return 2
-    for state, v in lanes_obj.items():
-        if state not in STATES:
-            sys.stderr.write(f"momo-config: unknown state {state!r} (allowed: {', '.join(STATES)})\n")
-            return 2
-        if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
-            sys.stderr.write(f"momo-config: lanes[{state!r}] must be a list of lane-name strings\n")
-            return 2
-    cfg = {
-        "provider": "trello",
-        "lanes": lanes_obj,
-    }
-    if write_targets:
-        cfg["write_targets"] = json.loads(write_targets)
-    if notes:
-        cfg["lane_notes"] = json.loads(notes)
+
     path = config_path(root)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:

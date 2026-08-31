@@ -113,23 +113,37 @@ class LaneGate:
             raise LaneGateError(f"no gate required for target '{target}'")
 
         results: list[GateResult] = []
-        results.append(self.gate_tree_lock())
-        results.append(self.gate_close())
+
+        def blocked() -> dict[str, Any]:
+            return {
+                "issue": self.issue,
+                "target": target,
+                "allowed": False,
+                "gates": [
+                    {"gate": r.gate, "passed": r.passed, "detail": r.detail}
+                    for r in results
+                ],
+            }
+
+        tree_result = self.gate_tree_lock()
+        results.append(tree_result)
+        if not tree_result.passed:
+            return blocked()
+
+        close_result = self.gate_close()
+        results.append(close_result)
+        if not close_result.passed:
+            return blocked()
+
         if target == "completed" and require_review:
             # The canonical autonomous-review command owns the completed
             # transition and its acceptance comment as one operation.  Calling
             # it without --close and then transitioning here would create two
             # authorities and could report acceptance for a failed transition.
-            results.append(self.gate_autonomous_review(review_file, close=True))
-
-        failed = [r for r in results if not r.passed]
-        if failed:
-            return {
-                "issue": self.issue,
-                "target": target,
-                "allowed": False,
-                "gates": [{"gate": r.gate, "passed": r.passed, "detail": r.detail} for r in results],
-            }
+            review_result = self.gate_autonomous_review(review_file, close=True)
+            results.append(review_result)
+            if not review_result.passed:
+                return blocked()
 
         if target == "completed" and require_review:
             return {

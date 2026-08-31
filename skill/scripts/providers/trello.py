@@ -44,7 +44,11 @@ _STANDARD_LANES = {
     "completed": ["Done"],
     "cancelled": ["Cancelled"],
 }
-_NORMALIZED_STATES = list(_STANDARD_LANES)
+NORMALIZED_STATES = tuple(_STANDARD_LANES)
+
+
+class ConfigError(ValueError):
+    """Raised when a lane configuration cannot be interpreted safely."""
 
 
 def die(msg: str, code: int = 2):
@@ -83,36 +87,151 @@ def load_config(root: str) -> dict:
         die(f"invalid .momo/config.json: {e}")
 
 
-def lane_map(config: dict) -> dict:
-    lanes = (config.get("lanes") or {}) if isinstance(config, dict) else {}
-    m = {k: list(v) for k, v in _STANDARD_LANES.items()}
-    for state in m:
-        if isinstance(lanes.get(state), list) and lanes[state]:
-            m[state] = list(lanes[state])
-    return m
-
-
-def write_target(config: dict, lm: dict, state: str) -> str:
-    wt = (config.get("write_targets") or {}) if isinstance(config, dict) else {}
-    return wt.get(state) or lm[state][0]
-
-
-def state_for_lane(lane: str, lm: dict) -> str:
-    folded = lane.casefold()
-    for state in (
-        "completed",
-        "cancelled",
-        "in_review",
-        "started",
-        "unstarted",
-        "backlog",
+def _exact_nonblank(value: object, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
     ):
-        if any(
-            isinstance(candidate, str) and candidate.casefold() == folded
-            for candidate in lm[state]
-        ):
-            return state
-    return "other"
+        raise ConfigError(f"{label} must be a non-blank exact string")
+    return value
+
+
+def _validated_lane_owners(lm: object) -> tuple[dict[str, list[str]], dict[str, str]]:
+    if not isinstance(lm, dict):
+        raise ConfigError("lanes must be an object of state -> [lane, ...]")
+    unknown = sorted(
+        (key for key in lm if key not in NORMALIZED_STATES),
+        key=repr,
+    )
+    if unknown:
+        raise ConfigError(f"unknown lane states: {unknown!r}")
+
+    canonical: dict[str, list[str]] = {}
+    owners: dict[str, str] = {}
+    for state in NORMALIZED_STATES:
+        values = lm.get(state)
+        if not isinstance(values, list) or not values:
+            raise ConfigError(f"lanes[{state!r}] must be a non-empty list")
+        state_seen: set[str] = set()
+        canonical[state] = []
+        for index, value in enumerate(values):
+            lane = _exact_nonblank(value, f"lanes[{state!r}][{index}]")
+            folded = lane.casefold()
+            if folded in state_seen:
+                raise ConfigError(
+                    f"lanes[{state!r}] contains duplicate lane {lane!r}"
+                )
+            if folded in owners:
+                raise ConfigError(
+                    f"lane {lane!r} belongs to both {owners[folded]!r} "
+                    f"and {state!r}"
+                )
+            state_seen.add(folded)
+            owners[folded] = state
+            canonical[state].append(lane)
+    return canonical, owners
+
+
+def _validated_write_targets(
+    config: object,
+    lm: dict[str, list[str]],
+) -> dict[str, str]:
+    if not isinstance(config, dict):
+        raise ConfigError("config must be a JSON object")
+    if "write_targets" not in config:
+        return {}
+    raw = config["write_targets"]
+    if not isinstance(raw, dict):
+        raise ConfigError("write_targets must be an object of state -> lane")
+    unknown = sorted(
+        (key for key in raw if key not in NORMALIZED_STATES),
+        key=repr,
+    )
+    if unknown:
+        raise ConfigError(f"unknown write_target states: {unknown!r}")
+
+    canonical: dict[str, str] = {}
+    for state, value in raw.items():
+        target = _exact_nonblank(value, f"write_targets[{state!r}]")
+        matches = [lane for lane in lm[state] if lane.casefold() == target.casefold()]
+        if len(matches) != 1:
+            raise ConfigError(
+                f"write_targets[{state!r}]={target!r} must name exactly one "
+                f"lane in lanes[{state!r}]={lm[state]!r}"
+            )
+        canonical[state] = matches[0]
+    return canonical
+
+
+def validate_lane_config(
+    config: object,
+) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """Return a strict effective lane map and canonical configured write targets."""
+    if not isinstance(config, dict):
+        raise ConfigError("config must be a JSON object")
+    if "lanes" in config:
+        raw_lanes = config["lanes"]
+        if not isinstance(raw_lanes, dict):
+            raise ConfigError("lanes must be an object of state -> [lane, ...]")
+    else:
+        raw_lanes = {}
+    unknown = sorted(
+        (key for key in raw_lanes if key not in NORMALIZED_STATES),
+        key=repr,
+    )
+    if unknown:
+        raise ConfigError(f"unknown lane states: {unknown!r}")
+
+    effective: dict[str, list[str]] = {
+        state: list(values) for state, values in _STANDARD_LANES.items()
+    }
+    for state, values in raw_lanes.items():
+        if not isinstance(values, list) or not values:
+            raise ConfigError(f"lanes[{state!r}] must be a non-empty list")
+        effective[state] = list(values)
+
+    lm, _owners = _validated_lane_owners(effective)
+    write_targets = _validated_write_targets(config, lm)
+    return lm, write_targets
+
+
+def _validated_lane_context(
+    config: object,
+    lm: object,
+) -> tuple[dict[str, list[str]], dict[str, str]]:
+    configured_lm, write_targets = validate_lane_config(config)
+    provided_lm, _owners = _validated_lane_owners(lm)
+    if provided_lm != configured_lm:
+        raise ConfigError("effective lane map does not match the supplied config")
+    return configured_lm, write_targets
+
+
+def lane_map(config: object) -> dict[str, list[str]]:
+    try:
+        lm, _write_targets = validate_lane_config(config)
+        return lm
+    except ConfigError as exc:
+        die(f"invalid lane config: {exc}", 3)
+
+
+def write_target(config: object, lm: object, state: str) -> str:
+    try:
+        if state not in NORMALIZED_STATES:
+            raise ConfigError(f"unknown normalized state {state!r}")
+        canonical_lm, configured = _validated_lane_context(config, lm)
+        return configured.get(state, canonical_lm[state][0])
+    except ConfigError as exc:
+        die(f"invalid lane config: {exc}", 3)
+
+
+def state_for_lane(lane: str, lm: object) -> str:
+    try:
+        lane_name = _exact_nonblank(lane, "lane")
+        _canonical, owners = _validated_lane_owners(lm)
+        return owners.get(lane_name.casefold(), "other")
+    except ConfigError as exc:
+        die(f"invalid lane config: {exc}", 3)
 
 
 def resolve_target_list(lists: object, lane: object) -> dict:
@@ -400,6 +519,16 @@ def transition_card(
     identifier: str | None = None,
 ) -> dict:
     """Move one card once, then prove the exact card and list via live readback."""
+    normalized_target = target in NORMALIZED_STATES
+    if normalized_target:
+        configured_lane = write_target(config, lm, target)
+    else:
+        try:
+            _validated_lane_context(config, lm)
+        except ConfigError as exc:
+            die(f"invalid lane config: {exc}", 3)
+        configured_lane = target
+
     native_id = resolve_card_id(trello, board, card_ref, identifier)
     card_fields = {"fields": "id,idBoard,idList,shortLink,idShort"}
     before = trello.get(f"cards/{native_id}", card_fields)
@@ -411,11 +540,14 @@ def transition_card(
     )
 
     live_lists = trello.get(f"boards/{board}/lists", {"fields": "name"})
-    if target in _NORMALIZED_STATES:
-        configured_lane = write_target(config, lm, target)
-    else:
-        configured_lane = target
     target_list = resolve_target_list(live_lists, configured_lane)
+    resolved_state = state_for_lane(target_list["name"], lm)
+    if normalized_target and resolved_state != target:
+        die(
+            f"normalized target {target!r} resolved to lane "
+            f"{target_list['name']!r} classified as {resolved_state!r}",
+            3,
+        )
 
     updated = trello.put(f"cards/{card_id}", {"idList": target_list["id"]})
     validate_card(
@@ -436,13 +568,20 @@ def transition_card(
     )
 
     lane = target_list["name"]
+    readback_state = state_for_lane(lane, lm)
+    if normalized_target and readback_state != target:
+        die(
+            f"normalized target {target!r} read back lane {lane!r} "
+            f"classified as {readback_state!r}",
+            4,
+        )
     return {
         "ok": True,
         "card": card_id,
         "requested_card": card_ref,
         "target": target,
         "moved_to": lane,
-        "state": state_for_lane(lane, lm),
+        "state": readback_state,
     }
 
 

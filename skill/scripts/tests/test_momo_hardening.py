@@ -203,6 +203,115 @@ class TestLaneGate(unittest.TestCase):
         )
         return gate
 
+    def traced_gate(
+        self,
+        temp: str,
+        *,
+        tree_passed: bool = True,
+        close_passed: bool = True,
+        review_passed: bool = True,
+    ):
+        gate = self.make_gate(temp)
+        calls = []
+        gate.gate_tree_lock = mock.Mock(
+            side_effect=lambda: (
+                calls.append("tree")
+                or GateResult("tree_lock", tree_passed, "tree result")
+            )
+        )
+        gate.gate_close = mock.Mock(
+            side_effect=lambda: (
+                calls.append("close")
+                or GateResult("close_gate", close_passed, "close result")
+            )
+        )
+        gate.gate_autonomous_review = mock.Mock(
+            side_effect=lambda *_args, **_kwargs: (
+                calls.append("review")
+                or GateResult(
+                    "autonomous_review",
+                    review_passed,
+                    "review result",
+                )
+            )
+        )
+        gate.transition = mock.Mock(
+            side_effect=lambda target: (
+                calls.append(f"transition:{target}")
+                or subprocess.CompletedProcess(
+                    [],
+                    0,
+                    stdout='{"ok":true}',
+                    stderr="",
+                )
+            )
+        )
+        return gate, calls
+
+    def test_tree_failure_short_circuits_every_downstream_action(self):
+        for target in ("completed", "in_review"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory(
+                prefix="momo-lane-test-"
+            ) as temp:
+                gate, calls = self.traced_gate(temp, tree_passed=False)
+
+                result = gate.run(target)
+
+                self.assertFalse(result["allowed"])
+                self.assertEqual(calls, ["tree"])
+                self.assertEqual(
+                    [item["gate"] for item in result["gates"]],
+                    ["tree_lock"],
+                )
+                gate.gate_close.assert_not_called()
+                gate.gate_autonomous_review.assert_not_called()
+                gate.transition.assert_not_called()
+
+    def test_close_failure_short_circuits_review_and_transition(self):
+        for target in ("completed", "in_review"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory(
+                prefix="momo-lane-test-"
+            ) as temp:
+                gate, calls = self.traced_gate(temp, close_passed=False)
+
+                result = gate.run(target)
+
+                self.assertFalse(result["allowed"])
+                self.assertEqual(calls, ["tree", "close"])
+                self.assertEqual(
+                    [item["gate"] for item in result["gates"]],
+                    ["tree_lock", "close_gate"],
+                )
+                gate.gate_autonomous_review.assert_not_called()
+                gate.transition.assert_not_called()
+
+    def test_review_failure_short_circuits_completed_transition(self):
+        with tempfile.TemporaryDirectory(prefix="momo-lane-test-") as temp:
+            gate, calls = self.traced_gate(temp, review_passed=False)
+
+            result = gate.run("completed")
+
+            self.assertFalse(result["allowed"])
+            self.assertEqual(calls, ["tree", "close", "review"])
+            gate.gate_autonomous_review.assert_called_once_with(None, close=True)
+            gate.transition.assert_not_called()
+
+    def test_success_paths_preserve_exact_chain_order(self):
+        expected = {
+            "completed": ["tree", "close", "review"],
+            "in_review": ["tree", "close", "transition:in_review"],
+        }
+        for target, expected_calls in expected.items():
+            with self.subTest(target=target), tempfile.TemporaryDirectory(
+                prefix="momo-lane-test-"
+            ) as temp:
+                gate, calls = self.traced_gate(temp)
+
+                result = gate.run(target)
+
+                self.assertTrue(result["allowed"])
+                self.assertEqual(calls, expected_calls)
+
     def test_gate_blocks_without_evidence(self):
         rc, out, err = run_cli("momo-lane-gate.py", "--issue", "NONEXISTENT-1", "--target", "completed", "--no-review")
         self.assertNotEqual(rc, 0)
@@ -655,6 +764,97 @@ class TestTrelloTransition(unittest.TestCase):
         self.assertEqual([call[0] for call in fake.calls], ["GET"])
         self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 0)
 
+    def test_normalized_write_target_must_belong_to_requested_state(self):
+        config = {
+            "lanes": {"completed": ["Done"]},
+            "write_targets": {"completed": "Archive"},
+        }
+        valid_lm = trello_provider.lane_map({
+            "lanes": {"completed": ["Done"]},
+        })
+        fake = self.successful_fake()
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            trello_provider.transition_card(
+                fake,
+                "board-1",
+                "card-1",
+                "completed",
+                config,
+                valid_lm,
+                "MOMO",
+            )
+
+        self.assertIn("must name exactly one lane", stderr.getvalue())
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 0)
+
+    def test_malformed_present_lane_config_never_falls_back_or_puts(self):
+        invalid_configs = (
+            {"lanes": {"completed": []}},
+            {"lanes": {"completed": "Done"}},
+            {"lanes": {"completed": [""]}},
+            {"write_targets": None},
+            {"write_targets": []},
+            {"write_targets": {"completed": ""}},
+        )
+        for config in invalid_configs:
+            with self.subTest(config=config):
+                fake = self.successful_fake()
+                stderr = io.StringIO()
+
+                with (
+                    contextlib.redirect_stderr(stderr),
+                    self.assertRaises(SystemExit),
+                ):
+                    self.transition(fake, config=config)
+
+                self.assertIn("invalid lane config", stderr.getvalue())
+                self.assertEqual(fake.calls, [])
+                self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 0)
+
+    def test_cross_state_lane_overlap_fails_before_cancelled_put(self):
+        config = {
+            "lanes": {
+                "completed": ["Terminal"],
+                "cancelled": ["terminal"],
+            },
+            "write_targets": {"cancelled": "terminal"},
+        }
+        fake = self.successful_fake()
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            self.transition(fake, target="cancelled", config=config)
+
+        self.assertIn("belongs to both", stderr.getvalue())
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 0)
+
+    def test_supplied_lane_map_cannot_diverge_from_config(self):
+        config = {"lanes": {"completed": ["Done"]}}
+        divergent_lm = trello_provider.lane_map({
+            "lanes": {"completed": ["Archive"]},
+        })
+        fake = self.successful_fake()
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            trello_provider.transition_card(
+                fake,
+                "board-1",
+                "card-1",
+                "completed",
+                config,
+                divergent_lm,
+                "MOMO",
+            )
+
+        self.assertIn("does not match", stderr.getvalue())
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 0)
+
     def test_wrong_put_response_fails_before_readback(self):
         wrong_responses = (
             {},
@@ -848,6 +1048,56 @@ class TestTrelloTransition(unittest.TestCase):
                     ],
                 )
                 self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
+
+    def test_casefold_write_target_returns_canonical_lane_and_state(self):
+        config = {
+            "lanes": {"completed": ["Archive"]},
+            "write_targets": {"completed": "archive"},
+        }
+        fake = FakeTrello(
+            [{"id": "list-archive", "name": "ARCHIVE"}],
+            [
+                {**trello_board_card(), "idList": "list-old"},
+                {**trello_board_card(), "idList": "list-archive"},
+            ],
+            {
+                "id": "card-1",
+                "idBoard": "board-1",
+                "idList": "list-archive",
+            },
+            cards=[trello_board_card()],
+        )
+
+        result = self.transition(fake, target="completed", config=config)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["target"], "completed")
+        self.assertEqual(result["moved_to"], "ARCHIVE")
+        self.assertEqual(result["state"], "completed")
+        self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
+
+    def test_literal_unmapped_lane_may_classify_as_other(self):
+        fake = FakeTrello(
+            [{"id": "list-archive", "name": "Archive"}],
+            [
+                {**trello_board_card(), "idList": "list-old"},
+                {**trello_board_card(), "idList": "list-archive"},
+            ],
+            {
+                "id": "card-1",
+                "idBoard": "board-1",
+                "idList": "list-archive",
+            },
+            cards=[trello_board_card()],
+        )
+
+        result = self.transition(fake, target="Archive")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["target"], "Archive")
+        self.assertEqual(result["moved_to"], "Archive")
+        self.assertEqual(result["state"], "other")
+        self.assertEqual(sum(call[0] == "PUT" for call in fake.calls), 1)
 
     def test_cli_blank_identifier_allows_board_scoped_shortlink_transition(self):
         with tempfile.TemporaryDirectory(prefix="momo-trello-transition-") as temp:
@@ -1309,6 +1559,89 @@ class TestEvidenceCapture(unittest.TestCase):
         rc, out, err = run_cli("momo-evidence-capture.py", "--issue", "NOHANDBACK-1", "--pytest-cmd", "echo", "--ruff-cmd", "echo")
         self.assertNotEqual(rc, 0)
         self.assertIn("no handback bundle", err)
+
+
+class TestMomoConfig(unittest.TestCase):
+    def run_set(self, root, lanes, write_targets=None, notes=None):
+        args = [
+            "set",
+            "--root",
+            str(root),
+            "--lanes",
+            lanes,
+        ]
+        if write_targets is not None:
+            args.extend(["--write-targets", write_targets])
+        if notes is not None:
+            args.extend(["--notes", notes])
+        return run_cli("momo-config.py", *args)
+
+    def test_set_writes_only_validated_lane_schema(self):
+        with tempfile.TemporaryDirectory(prefix="momo-config-test-") as temp:
+            root = pathlib.Path(temp)
+
+            rc, _out, err = self.run_set(
+                root,
+                json.dumps({
+                    "completed": ["Archive"],
+                    "cancelled": ["Abandoned"],
+                }),
+                json.dumps({
+                    "completed": "archive",
+                    "cancelled": "Abandoned",
+                }),
+                json.dumps({"Archive": "accepted work"}),
+            )
+
+            self.assertEqual(rc, 0, err)
+            config = json.loads((root / ".momo" / "config.json").read_text())
+            self.assertEqual(config["lanes"]["completed"], ["Archive"])
+            self.assertEqual(config["lanes"]["cancelled"], ["Abandoned"])
+            self.assertEqual(config["write_targets"]["completed"], "archive")
+
+    def test_set_rejects_invalid_lane_shapes_without_writing(self):
+        invalid_lanes = (
+            "[]",
+            json.dumps({"completed": []}),
+            json.dumps({"completed": "Done"}),
+            json.dumps({"completed": [""]}),
+            json.dumps({"completed": ["Done", "done"]}),
+            json.dumps({"completed": ["Terminal"], "cancelled": ["terminal"]}),
+            json.dumps({"unknown": ["Mystery"]}),
+        )
+        for lanes in invalid_lanes:
+            with self.subTest(lanes=lanes), tempfile.TemporaryDirectory(
+                prefix="momo-config-test-"
+            ) as temp:
+                root = pathlib.Path(temp)
+
+                rc, _out, err = self.run_set(root, lanes)
+
+                self.assertNotEqual(rc, 0)
+                self.assertIn("invalid configuration", err)
+                self.assertFalse((root / ".momo" / "config.json").exists())
+
+    def test_set_rejects_invalid_write_targets_without_writing(self):
+        invalid_targets = (
+            "{",
+            "[]",
+            json.dumps({"unknown": "Done"}),
+            json.dumps({"completed": ""}),
+            json.dumps({"completed": 123}),
+            json.dumps({"completed": "Archive"}),
+        )
+        lanes = json.dumps({"completed": ["Done"]})
+        for write_targets in invalid_targets:
+            with self.subTest(write_targets=write_targets), tempfile.TemporaryDirectory(
+                prefix="momo-config-test-"
+            ) as temp:
+                root = pathlib.Path(temp)
+
+                rc, _out, err = self.run_set(root, lanes, write_targets)
+
+                self.assertNotEqual(rc, 0)
+                self.assertIn("invalid configuration", err)
+                self.assertFalse((root / ".momo" / "config.json").exists())
 
 
 class TestConfigDrift(unittest.TestCase):
