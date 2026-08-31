@@ -13,8 +13,9 @@ doctrine is provider-uniform:
     active_milestone                 -> {id, name, state}   (Trello has no cycles; board-as-milestone)
     list_issues                      -> [{id, key, title, state, state_type, list, url, ...}]
     get_issue <id|idShort>           -> {id, key, title, description, acceptance, state, list, comments}
-    comment <id> <body>              -> prints comment id
-    transition <id> <state|lane>     -> move to the lane for a normalized state, OR a literal lane name
+    comment <native-card-id> <body>  -> prints comment id
+    transition <native-card-id> <state|lane>
+                                      -> move to a normalized state or literal lane
 
 Credentials (env): TRELLO_API_KEY (or TRELLO_KEY) + TRELLO_TOKEN.
 Board id: --board-id, else $TRELLO_BOARD_ID, else .project.json ticket_provider.board_id.
@@ -157,7 +158,7 @@ def validate_card(
     *,
     stage: str,
     expected_id: str | None = None,
-    expected_ref: str | None = None,
+    expected_board: str | None = None,
     expected_list: str | None = None,
 ) -> str:
     """Validate a Trello card response and return its canonical id."""
@@ -171,20 +172,14 @@ def validate_card(
             f"{stage} returned different card {card_id!r}; expected {expected_id!r}",
             4,
         )
-    if expected_ref is not None:
-        identities = {
-            str(value)
-            for value in (
-                payload.get("id"),
-                payload.get("idShort"),
-                payload.get("shortLink"),
-            )
-            if value is not None
-        }
-        if expected_ref not in identities:
+    if expected_board is not None:
+        board_id = payload.get("idBoard")
+        if not isinstance(board_id, str) or not board_id:
+            die(f"{stage} returned a card without a valid idBoard", 4)
+        if board_id != expected_board:
             die(
-                f"{stage} resolved {expected_ref!r} to a different card "
-                f"{card_id!r}",
+                f"{stage} returned card from different board {board_id!r}; "
+                f"expected {expected_board!r}",
                 4,
             )
     if expected_list is not None and payload.get("idList") != expected_list:
@@ -268,11 +263,21 @@ def validate_comment_response(payload: object, expected_cards: set[str]) -> str:
     return action_id.strip()
 
 
-def comment_card(trello: "Trello", card_ref: str, body: str) -> str:
+def comment_card(
+    trello: "Trello",
+    board: str,
+    card_ref: str,
+    body: str,
+) -> str:
     """Create one comment and return its proven Trello action id."""
-    card_fields = {"fields": "id,shortLink,idShort"}
+    card_fields = {"fields": "id,idBoard,shortLink,idShort"}
     card = trello.get(f"cards/{card_ref}", card_fields)
-    card_id = validate_card(card, stage="comment card lookup", expected_ref=card_ref)
+    card_id = validate_card(
+        card,
+        stage="comment card lookup",
+        expected_id=card_ref,
+        expected_board=board,
+    )
     expected_cards = card_identities(card)
     response = trello.post(
         f"cards/{card_id}/actions/comments",
@@ -297,12 +302,13 @@ def transition_card(
         configured_lane = target
     target_list = resolve_target_list(live_lists, configured_lane)
 
-    card_fields = {"fields": "id,idList,shortLink,idShort"}
+    card_fields = {"fields": "id,idBoard,idList,shortLink,idShort"}
     before = trello.get(f"cards/{card_ref}", card_fields)
     card_id = validate_card(
         before,
         stage="card lookup",
-        expected_ref=card_ref,
+        expected_id=card_ref,
+        expected_board=board,
     )
 
     updated = trello.put(f"cards/{card_id}", {"idList": target_list["id"]})
@@ -464,11 +470,11 @@ def main() -> int:
         })
     elif op == "comment":
         if len(args) < 2:
-            die("comment needs <id|idShort> <body>")
-        print(comment_card(t, args[0], " ".join(args[1:])))
+            die("comment needs <native-card-id> <body>")
+        print(comment_card(t, board, args[0], " ".join(args[1:])))
     elif op == "transition":
         if len(args) < 2:
-            die("transition needs <id|idShort> <state|lane>")
+            die("transition needs <native-card-id> <state|lane>")
         card_ref, target = args[0], args[1]
         emit(transition_card(t, board, card_ref, target, config, lm))
     else:
