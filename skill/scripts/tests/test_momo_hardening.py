@@ -32,6 +32,14 @@ assert TRELLO_SPEC is not None and TRELLO_SPEC.loader is not None
 trello_provider = importlib.util.module_from_spec(TRELLO_SPEC)
 TRELLO_SPEC.loader.exec_module(trello_provider)
 
+MOMO_CONFIG_SPEC = importlib.util.spec_from_file_location(
+    "momo_config_script",
+    SCRIPTS / "momo-config.py",
+)
+assert MOMO_CONFIG_SPEC is not None and MOMO_CONFIG_SPEC.loader is not None
+momo_config = importlib.util.module_from_spec(MOMO_CONFIG_SPEC)
+MOMO_CONFIG_SPEC.loader.exec_module(momo_config)
+
 
 def run_cli(script: str, *args, cwd=None, env=None):
     """Run a momo CLI script and return (rc, stdout, stderr)."""
@@ -1451,10 +1459,11 @@ class TestTrelloComment(unittest.TestCase):
             ],
         )
 
-    def test_comment_accepts_id_only_response_when_card_is_not_exposed(self):
-        result, _fake = self.comment({"id": "action-1"})
-
-        self.assertEqual(result, "action-1")
+    def test_comment_rejects_id_only_response_without_card_identity(self):
+        self.assert_comment_error(
+            {"id": "action-1"},
+            "exposed no card identity",
+        )
 
     def test_comment_cli_prints_nothing_until_response_is_proven(self):
         with tempfile.TemporaryDirectory(prefix="momo-trello-comment-") as temp:
@@ -1642,6 +1651,38 @@ class TestMomoConfig(unittest.TestCase):
                 self.assertNotEqual(rc, 0)
                 self.assertIn("invalid configuration", err)
                 self.assertFalse((root / ".momo" / "config.json").exists())
+
+    def test_detect_classifies_custom_cancelled_lane_casefold_consistently(self):
+        lane_config = {
+            "lanes": {"cancelled": ["Abandoned"]},
+            "write_targets": {"cancelled": "Abandoned"},
+        }
+        info = {
+            "board_name": "Test board",
+            "board_id": "board-1",
+            "config_present": True,
+            "list_map": trello_provider.lane_map(lane_config),
+            "board_lists": [
+                "BACKLOG",
+                "to do",
+                "IN PROGRESS",
+                "review",
+                "DONE",
+                "ABANDONED",
+            ],
+        }
+        stdout = io.StringIO()
+
+        with (
+            mock.patch.object(momo_config, "provider_resolve", return_value=info),
+            contextlib.redirect_stdout(stdout),
+        ):
+            self.assertEqual(momo_config.cmd_detect("/unused"), 0)
+
+        result = json.loads(stdout.getvalue())
+        self.assertEqual(result["unmapped_lanes"], [])
+        self.assertEqual(result["states_with_missing_lane"], {})
+        self.assertTrue(result["is_standard"])
 
 
 class TestConfigDrift(unittest.TestCase):

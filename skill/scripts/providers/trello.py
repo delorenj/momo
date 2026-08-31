@@ -426,7 +426,7 @@ def resolve_card_id(
 
 
 def validate_comment_response(payload: object, expected_cards: set[str]) -> str:
-    """Prove a comment action exists and belongs to the requested card when stated."""
+    """Prove a comment action id and its requested-card identity."""
     if not isinstance(payload, dict):
         die("comment response did not return an action object", 4)
 
@@ -474,7 +474,9 @@ def validate_comment_response(payload: object, expected_cards: set[str]) -> str:
                 die("comment response data.card envelope has no identity", 4)
             exposed_cards.update(identities)
 
-    if identity_envelopes and not exposed_cards.issubset(expected_cards):
+    if not identity_envelopes:
+        die("comment response exposed no card identity", 4)
+    if not exposed_cards.issubset(expected_cards):
         die(
             "comment response belongs to a different card: "
             f"got {sorted(exposed_cards)!r}, expected one of "

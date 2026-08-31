@@ -35,6 +35,7 @@ sys.path.insert(0, PROVIDERS)
 from trello import (  # type: ignore[import]  # noqa: E402
     ConfigError,
     NORMALIZED_STATES,
+    state_for_lane,
     validate_lane_config,
 )
 
@@ -52,13 +53,6 @@ def provider_resolve(root: str) -> dict:
     return json.loads(out.stdout)
 
 
-def state_for_lane(lane: str, lm: dict) -> str:
-    for state in ("completed", "in_review", "started", "unstarted", "backlog"):
-        if lane in lm.get(state, []):
-            return state
-    return "other"
-
-
 def config_path(root: str) -> str:
     return os.path.join(root, ".momo", "config.json")
 
@@ -67,8 +61,20 @@ def cmd_detect(root: str) -> int:
     info = provider_resolve(root)
     lm = info["list_map"]
     board_lists = info["board_lists"]
+    live_lane_names = {
+        lane.casefold()
+        for lane in board_lists
+        if isinstance(lane, str)
+    }
     unmapped = [l for l in board_lists if state_for_lane(l, lm) == "other"]
-    missing = {s: lm[s] for s in STATES if not any(t in board_lists for t in lm.get(s, []))}
+    missing = {
+        state: lm[state]
+        for state in STATES
+        if not any(
+            lane.casefold() in live_lane_names
+            for lane in lm.get(state, [])
+        )
+    }
     report = {
         "board_name": info.get("board_name", ""),
         "board_id": info.get("board_id", ""),
