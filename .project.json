@@ -13,13 +13,6 @@
     "board_confirmed_at": "2026-08-28T20:44:44.250Z"
   },
   "agents": {},
-  "automation": {
-    "reconcile": {
-      "enabled": false,
-      "grace_hours": 0,
-      "auto_review": true
-    }
-  },
   "status": "planned",
   "source_artifacts": [],
   "template": {
