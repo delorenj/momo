@@ -63,10 +63,13 @@ roles:
     # families were never once published and nothing subscribes to them. They
     # were retired on 2026-08-28 rather than renamed. Add a family here only
     # after registering its schema and pointing a real consumer at it.
+    # Ticket facts (bloodbank.repo.task.* / repo.board.*) are NOT listed: the
+    # Plane webhook (n8n "Plane → Bloodbank") is their only producer. Agents
+    # create tickets with `px task create` (or bloodbank.cmd.lifecycle.task.invoke
+    # op=create on a Krebs-managed board) and the webhook echo is the fact.
     bloodbank_events:
       - bloodbank.repo.decision.recorded
       - bloodbank.repo.intake.triaged
-      - bloodbank.repo.task.created
 
   # Non-PM roles inherit only the envelope contract + tone; no Momo doctrine.
   dev:     { purpose_template: "Implementation for {repo}", charter: "You implement tasks dispatched by the PM twin. You do not merge.", bloodbank_events: [] }
