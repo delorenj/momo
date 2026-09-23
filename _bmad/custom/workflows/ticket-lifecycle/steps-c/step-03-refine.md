@@ -102,8 +102,8 @@ reason: AC refined and passed sufficiency rubric (4/4 criteria met)
 ---
 ```
 
-Update ticket status to ready state.
-Broadcast `bloodbank.repo.task.updated` with `phase: "ready"` (see {eventSchemas}).
+Move the ticket to ready state with `px`.
+Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for this move (see {eventSchemas}).
 
 **Proceeding to implementation...**
 Immediately load, read entire file, then execute {nextStepFile}.
@@ -124,8 +124,8 @@ details:
 ---
 ```
 
-Update ticket status to blocked state.
-Broadcast `bloodbank.repo.task.updated` with `trigger_source: "ticket-lifecycle-staleness"` and `phase: "blocked"` (see {eventSchemas}). There is no separate staleness type.
+Move the ticket to blocked state with `px`.
+Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for the move to blocked, and the audit comment above carries the reason (see {eventSchemas}).
 EXIT workflow. This ticket needs human intervention.
 
 ---
@@ -138,7 +138,7 @@ EXIT workflow. This ticket needs human intervention.
 - AC refined and re-verified against rubric
 - Ticket transitioned to ready (or blocked if refinement failed)
 - Audit comment posted with transition details
-- Bloodbank event broadcast
+- No `repo.task.*` event emitted by the workflow (the Plane webhook publishes each move)
 
 ### FAILURE:
 

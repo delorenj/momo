@@ -95,8 +95,8 @@ details:
 ---
 ```
 
-Update ticket status to qa.
-Broadcast `bloodbank.repo.task.updated` with `phase: "qa"` (see {eventSchemas}).
+Move the ticket to qa with `px`.
+Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for this move (see {eventSchemas}).
 
 **Proceeding to QA verification...**
 Immediately load, read entire file, then execute {nextStepFile}.
@@ -119,8 +119,8 @@ details:
 ---
 ```
 
-Update ticket status back to in_progress.
-Broadcast `bloodbank.repo.task.updated` with `phase: "in_progress"` (see {eventSchemas}).
+Move the ticket back to in_progress with `px`.
+Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for this move (see {eventSchemas}).
 
 **Routing back to implementation with review failures...**
 Immediately load, read entire file, then execute {retryStepFile}.

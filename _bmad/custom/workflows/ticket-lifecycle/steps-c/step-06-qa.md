@@ -120,8 +120,8 @@ details:
 ---
 ```
 
-Update ticket status to done.
-Broadcast `bloodbank.repo.task.updated` with `phase: "done"` (see {eventSchemas}).
+Move the ticket to done with `px`.
+Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for this move (see {eventSchemas}).
 
 **Proceeding to completion...**
 Immediately load, read entire file, then execute {doneStepFile}.
@@ -147,8 +147,8 @@ details:
 ---
 ```
 
-Update ticket status to in_progress.
-Broadcast `bloodbank.repo.task.updated` with `phase: "in_progress"` (see {eventSchemas}).
+Move the ticket to in_progress with `px`.
+Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for this move (see {eventSchemas}).
 
 **Routing back to implementation with defect details...**
 Immediately load, read entire file, then execute {retryStepFile}.
@@ -170,8 +170,8 @@ details:
 ---
 ```
 
-Update ticket status to blocked.
-Broadcast `bloodbank.repo.task.updated` with `trigger_source: "ticket-lifecycle-staleness"`, `phase: "blocked"`, and the full failure history in `data` (see {eventSchemas}). There is no separate staleness type.
+Move the ticket to blocked with `px`.
+Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for the move to blocked; the failure history lives in the audit comment above (see {eventSchemas}).
 
 **Ticket blocked. Exiting to completion...**
 Immediately load, read entire file, then execute {doneStepFile}.
