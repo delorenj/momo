@@ -54,7 +54,10 @@ Check the ticket's current state (set by the previous step):
 
 ### 2. Post Final Audit Summary
 
-Post a summary audit comment to Plane using {auditCommentTemplate}:
+Post a summary audit comment using {auditCommentTemplate}. The ticket is already
+in its terminal lane, so the same command posts only the comment (px sees the
+lane is unchanged and skips the PATCH):
+`px move {ticket_id} "{states.done}" -m "<summary>" --json` (or `"{states.blocked}"`).
 
 **For "done" state:**
 ```

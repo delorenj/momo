@@ -104,7 +104,7 @@ For each AC item:
 
 **IF ALL AC ITEMS PASS:**
 
-Post audit comment using {auditCommentTemplate}:
+Audit comment ({auditCommentTemplate}); the move below posts it:
 ```
 [TICKET-LIFECYCLE] State Transition
 ---
@@ -120,7 +120,7 @@ details:
 ---
 ```
 
-Move the ticket to done with `px`.
+Move the ticket to done and post that comment with it: `px move {ticket_id} "{states.done}" -m "<audit comment>" --json`.
 Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for this move (see {eventSchemas}).
 
 **Proceeding to completion...**
@@ -128,7 +128,7 @@ Immediately load, read entire file, then execute {doneStepFile}.
 
 **IF ANY ITEMS FAIL AND retry_count < max_retries:**
 
-Post audit comment:
+Audit comment; the move below posts it:
 ```
 [TICKET-LIFECYCLE] State Transition
 ---
@@ -147,7 +147,7 @@ details:
 ---
 ```
 
-Move the ticket to in_progress with `px`.
+Move the ticket to in_progress and post that comment with it: `px move {ticket_id} "{states.in_progress}" -m "<audit comment>" --json`.
 Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for this move (see {eventSchemas}).
 
 **Routing back to implementation with defect details...**
@@ -155,7 +155,7 @@ Immediately load, read entire file, then execute {retryStepFile}.
 
 **IF ANY ITEMS FAIL AND retry_count >= max_retries:**
 
-Post audit comment:
+Audit comment; the move below posts it:
 ```
 [TICKET-LIFECYCLE] State Transition
 ---
@@ -170,7 +170,7 @@ details:
 ---
 ```
 
-Move the ticket to blocked with `px`.
+Move the ticket to blocked and post that comment with it: `px move {ticket_id} "{states.blocked}" -m "<audit comment>" --json`.
 Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for the move to blocked; the failure history lives in the audit comment above (see {eventSchemas}).
 
 **Ticket blocked. Exiting to completion...**

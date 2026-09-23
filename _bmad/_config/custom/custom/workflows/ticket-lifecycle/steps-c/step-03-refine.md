@@ -90,7 +90,7 @@ Apply the same 4-criteria rubric from {acRubric} to the refined AC.
 
 **IF SUFFICIENT (all 4 criteria pass):**
 
-Post audit comment using {auditCommentTemplate}:
+Audit comment ({auditCommentTemplate}); the move below posts it:
 ```
 [TICKET-LIFECYCLE] State Transition
 ---
@@ -102,7 +102,7 @@ reason: AC refined and passed sufficiency rubric (4/4 criteria met)
 ---
 ```
 
-Move the ticket to ready state with `px`.
+Move the ticket to ready and post that comment with it: `px move {ticket_id} "{states.ready}" -m "<audit comment>" --json`.
 Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for this move (see {eventSchemas}).
 
 **Proceeding to implementation...**
@@ -110,7 +110,7 @@ Immediately load, read entire file, then execute {nextStepFile}.
 
 **IF STILL INSUFFICIENT:**
 
-Post audit comment:
+Audit comment; the move below posts it:
 ```
 [TICKET-LIFECYCLE] State Transition
 ---
@@ -124,7 +124,7 @@ details:
 ---
 ```
 
-Move the ticket to blocked state with `px`.
+Move the ticket to blocked and post that comment with it: `px move {ticket_id} "{states.blocked}" -m "<audit comment>" --json`.
 Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for the move to blocked, and the audit comment above carries the reason (see {eventSchemas}).
 EXIT workflow. This ticket needs human intervention.
 

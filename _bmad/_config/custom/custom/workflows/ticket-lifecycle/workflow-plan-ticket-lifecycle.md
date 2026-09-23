@@ -64,7 +64,7 @@ Each state has a max duration. If exceeded, the workflow moves the ticket to `bl
 
 **Integration Points:**
 - Plane REST API (ticket CRUD, status transitions, label routing)
-- `px` (Pilot) on PATH: the one Plane writer, used for every state move
+- `px` (Pilot >= 0.2.0) on PATH: the one Plane writer; every state move is `px move <ticket> "<lane>" -m "<audit comment>"` on a legacy board
 - Plane webhook → n8n `Plane → Bloodbank`: the only producer of `bloodbank.repo.task.*` facts (no emitter needed here)
 - Plane skill at ~/.claude/skills/managing-tickets-and-tasks-in-plane/
 
@@ -104,7 +104,7 @@ Each state has a max duration. If exceeded, the workflow moves the ticket to `bl
 **Inputs Required:**
 - Required: Ticket ID or Plane board context (ticket_provider.workspace + ticket_provider.board_id from `.project.json`)
 - Required: Plane API access (via existing skill `managing-tickets-and-tasks-in-plane`)
-- Required: `px` on PATH (the one Plane writer)
+- Required: `px` (Pilot >= 0.2.0, for `px move`) on PATH (the one Plane writer)
 - Optional: Trigger mode context (human request, agent delegation, or Bloodbank event)
 - Precondition: `.project.json` must exist in project root and contain a `ticket_provider` block with a non-empty `board_id` AND reference a workspace registered in `~/.claude/plane-workspaces.json`. If missing or malformed, workflow exits with a clear error (no silent failure).
 

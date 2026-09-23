@@ -83,7 +83,7 @@ SUFFICIENT = non_empty AND testable AND enumerated AND fr_coverage
 
 **IF SUFFICIENT (all 4 criteria pass):**
 
-Post audit comment to Plane using {auditCommentTemplate}:
+Audit comment ({auditCommentTemplate}); the move below posts it:
 ```
 [TICKET-LIFECYCLE] State Transition
 ---
@@ -95,7 +95,7 @@ reason: AC passed sufficiency rubric (4/4 criteria met)
 ---
 ```
 
-Move the ticket to ready state with `px`.
+Move the ticket to ready and post that comment with it: `px move {ticket_id} "{states.ready}" -m "<audit comment>" --json`.
 
 Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for this move (see {eventSchemas}).
 
@@ -104,7 +104,7 @@ Immediately load, read entire file, then execute {nextStepFile}.
 
 **IF INSUFFICIENT (any criterion fails):**
 
-Post audit comment to Plane:
+Audit comment; the move below posts it:
 ```
 [TICKET-LIFECYCLE] State Transition
 ---
@@ -119,7 +119,7 @@ details:
 ---
 ```
 
-Move the ticket to refining state with `px`.
+Move the ticket to refining and post that comment with it: `px move {ticket_id} "{states.refining}" -m "<audit comment>" --json`.
 
 Emit nothing: the Plane webhook publishes `bloodbank.repo.task.updated` for this move (see {eventSchemas}).
 

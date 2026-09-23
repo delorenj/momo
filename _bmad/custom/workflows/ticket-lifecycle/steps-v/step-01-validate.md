@@ -60,6 +60,9 @@ To verify that all external dependencies, configuration files, and tooling requi
 **Check px:**
 - [ ] `px` is on PATH
 - [ ] `px whoami --json` resolves this repo's board binding
+- [ ] `px --help` lists `move` (Pilot >= 0.2.0)
+- [ ] Every lane named under `states` in {workflowConfig} exists on the board:
+      `px move <any ticket> "<lane>" --dry-run --json` resolves it
 
 ### 3. Validate the No-Emit Rule
 
@@ -71,7 +74,7 @@ webhook normalizer (n8n `Plane → Bloodbank`), which turns every state move int
 **Verify no emit step survives in the workflow:**
 - [ ] No step file tells the orchestrator to broadcast, publish, or `bb emit` a
       `repo.task.*` or `repo.board.*` type
-- [ ] Every state move in steps-c/ is a `px` write followed by "Emit nothing"
+- [ ] Every state move in steps-c/ is a `px move` followed by "Emit nothing"
 
 ### 4. Validate Workflow Configuration
 
@@ -109,6 +112,8 @@ Plane Configuration:
 Ticket Writer:
   px on PATH ................. [PASS/FAIL]
   px whoami .................. [PASS/FAIL]
+  px move available .......... [PASS/FAIL]
+  states lanes on board ...... [PASS/FAIL]
 
 No-Emit Rule:
   no emit step in steps-c/ ... [PASS/FAIL]

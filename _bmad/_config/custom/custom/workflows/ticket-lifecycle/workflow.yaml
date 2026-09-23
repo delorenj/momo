@@ -27,14 +27,22 @@ staleness:
 # every state move this workflow writes through px, and repo.task.appended for
 # every audit comment. See data/event-schemas.md.
 
-# Plane State Mapping
+# Plane State Mapping: workflow phase -> board lane, the target of
+# `px move {ticket_id} "{states.<phase>}"`. px resolves the lane strictly and
+# fails (listing the board's lanes) on a name the board lacks, so these must be
+# real lane names. Defaults are the canonical nine lanes (pilot
+# schemas/33god-standard.json, a projection of krebs LANES). The canon has no
+# triage, review or blocked lane: triage shares Needs Re-evaluation with
+# refining, review stays in In Progress until QA, and blocked is the
+# human-in-the-loop lane, Needs Attention. The audit comment records the phase.
+# A board with other lane names overrides them here.
 states:
   backlog: "Backlog"
-  triage: "Triage"
-  refining: "Refining"
-  ready: "Ready"
+  triage: "Needs Re-evaluation"
+  refining: "Needs Re-evaluation"
+  ready: "Todo"
   in_progress: "In Progress"
-  review: "Review"
-  qa: "QA"
+  review: "In Progress"
+  qa: "E2E Testing & QA"
   done: "Done"
-  blocked: "Blocked"
+  blocked: "Needs Attention"

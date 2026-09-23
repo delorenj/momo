@@ -24,20 +24,37 @@ different provenance, and consumers would count the transition twice.
 
 ## How to move a ticket
 
-- Write the state change through **`px`** — the one Plane writer — using the
-  state names in {workflowConfig}. Where a `px` verb is missing, use the
-  ticket-provider adapter the repo already declares; never add an emit step to
-  make up for it.
-- Post the `[TICKET-LIFECYCLE]` audit comment on the ticket. The comment is the
-  place for detail (rubric evidence, failure history, stuck-state durations);
-  it reaches the bus as `bloodbank.repo.task.appended`.
+One command does the move and posts the audit comment:
+
+```bash
+px move {ticket_id} "{states.<phase>}" -m "<audit comment>" --json
+```
+
+- `{states.<phase>}` is the lane name mapped for that phase under `states:` in
+  {workflowConfig} (e.g. `{states.ready}` is `Todo` on the canonical board).
+  `px move` resolves it strictly: exact name, then the name ignoring case and
+  spacing. It never guesses; an unknown name fails and lists the board's
+  lanes. Fix the mapping, don't retry with a different name.
+- `-m` posts the `[TICKET-LIFECYCLE]` audit comment on the ticket. The comment
+  is the place for detail (rubric evidence, failure history, stuck-state
+  durations); it reaches the bus as `bloodbank.repo.task.appended`. px posts it
+  even when the ticket is already in that lane (two phases can share one lane),
+  and then skips the PATCH (`"changed": false`).
+- Retrying after an uncertain failure? Read `changed` in the first result, or
+  the ticket, before re-sending `-m`, or the comment lands twice.
+- `px move` is for a legacy (non-Krebs) board. On a Krebs-managed board
+  (`.project.json` `execution.mode` is `managed` or `shadow`) it refuses:
+  there the lane moves only through the lifecycle commands (`px task plan|
+  claim|handoff|complete|attention|release`), per the momo skill's
+  managed-execution reference.
 - Then move on. Do not publish anything, do not wait for an echo, and do not
   call `bb emit` for a `repo.task.*` or `repo.board.*` type.
 
 ## Staleness
 
 A state that exceeds its max duration in {workflowConfig} is not an event.
-Move the ticket to `blocked` and put the detail in the audit comment:
+Move the ticket to `blocked` (`px move {ticket_id} "{states.blocked}" -m ...`)
+and put the detail in the audit comment:
 
 ```
 [TICKET-LIFECYCLE] State Transition

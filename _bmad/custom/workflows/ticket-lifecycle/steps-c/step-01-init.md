@@ -78,7 +78,7 @@ Using `ticket_provider.workspace` from `.project.json`, verify it exists in `~/.
 
 Verify availability of:
 
-1. **Ticket writer:** `px` is on PATH and `px whoami --json` resolves this repo's board. `px` is the one Plane writer; every state move in this workflow goes through it.
+1. **Ticket writer:** `px` (Pilot >= 0.2.0) is on PATH, `px whoami --json` resolves this repo's board, and `px --help` lists `move`. `px` is the one Plane writer; every state move in this workflow is a `px move` (see {eventSchemas}).
 
 This workflow publishes no Bloodbank events, so it needs no `bb-emit`: ticket
 facts come only from the Plane webhook normalizer (see {eventSchemas}).
@@ -119,7 +119,7 @@ Extract from the selected ticket:
 
 ### 7. Transition to Triage
 
-Post an audit comment to the Plane ticket:
+Audit comment; the move below posts it:
 ```
 [TICKET-LIFECYCLE] State Transition
 ---
@@ -131,7 +131,7 @@ reason: Ticket acquired for lifecycle processing
 ---
 ```
 
-Move the ticket to the triage state (per {workflowConfig} state mapping) with `px`.
+Move the ticket to triage and post that comment with it: `px move {ticket_id} "{states.triage}" -m "<audit comment>" --json`.
 
 Emit nothing. The Plane webhook normalizer (n8n `Plane → Bloodbank`) publishes
 `bloodbank.repo.task.updated` for this move (see {eventSchemas}); a hand-written

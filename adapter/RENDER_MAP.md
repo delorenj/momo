@@ -23,7 +23,7 @@ Sources: `S` = Momo spec (`momo-agent.spec.yaml`), `I` = copier identity var,
 | `reconcile.grace_hours` | S | `roles.<role>.behavior.reconcile.grace_hours` |
 | `reconcile.auto_review` | S | `roles.<role>.behavior.reconcile.auto_review` |
 | `plane.workspace` / `identifier` | I+P | `plane_workspace` + `42-ticket-provider.sh` |
-| `bloodbank.enabled` | C | `false` — quarantine gate; discovery is safe, execution needs explicit activation |
+| `bloodbank.enabled` | C | `true` — activation gate, default on. A missing key also means enabled; only an explicit `false` quarantines the agent from dispatch, and a non-boolean value is invalid (refused and logged) |
 | `bloodbank.gateway_scope` | C | `fleet` — the shared gateway holds the one durable on `bloodbank.cmd.agent.invocation.start`; agents do **not** get a per-agent subject. There is no `subscribe[]` and no `routing:` block in `role.yaml.jinja`; routing is by payload `data.target_agent_id`, because the subject grammar is 5 fixed tokens (`bloodbank.<kind>.<domain>.<entity>.<action>`) with no repo/agent slug and no version segment. |
 | `bloodbank.target_agent_id` | I | `agent_id` |
 | `bloodbank.producer` | I | `hermes-agent:{agent_id}` **(canonical producer scheme record-decision must match)** |

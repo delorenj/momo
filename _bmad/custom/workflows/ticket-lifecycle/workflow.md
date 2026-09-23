@@ -51,7 +51,7 @@ Load project context:
 - `.project.json` from project root (the `ticket_provider` block) for workspace and project identification
 - `~/.claude/plane-workspaces.json` for workspace API configuration
 - Plane skill at `~/.claude/skills/managing-tickets-and-tasks-in-plane/` for API patterns
-- `px` (Pilot) on PATH: the one Plane writer, used for every state move
+- `px` (Pilot >= 0.2.0) on PATH: the one Plane writer; every state move is `px move {ticket_id} "{states.<phase>}" -m "<audit comment>"`
 - `data/event-schemas.md` for the Bloodbank rule: this workflow emits no ticket events; the Plane webhook does
 
 ### 2. Mode Determination
