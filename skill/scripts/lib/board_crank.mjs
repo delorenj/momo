@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, openSync, closeSync, fsyncSync,
-  readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+  readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 
 export const CONTRACT = 'board.crank.v1';
@@ -10,6 +10,12 @@ const PRIORITY = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
 const TERMINAL = new Set(['completed', 'cancelled']);
 const idOf = value => typeof value === 'string' ? value : value?.id;
 export const digest = value => createHash('sha256').update(value).digest('hex');
+export const canonicalJSON = value => JSON.stringify(value, (_key, item) =>
+  item && typeof item === 'object' && !Array.isArray(item) ?
+    Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+const configDigest = value => digest(canonicalJSON(value));
+export const ticketRevision = ticket => configDigest({ id: ticket.id, name: ticket.name,
+  sequence_id: ticket.sequence_id, description_html: ticket.description_html ?? null });
 export class ControlRefusal extends Error {}
 const require = (condition, reason) => { if (!condition) throw new ControlRefusal(reason); };
 const nonblank = value => typeof value === 'string' && value.trim().length > 0;
@@ -74,22 +80,30 @@ export function validateRuntime(c, facts, now) {
 
 // Extract text by blocks, preserving enumerated HTML acceptance criteria.
 export function descriptionText(html = '') {
-  return html.replace(/<li\b[^>]*>/gi, '\n1. ').replace(/<\/(?:p|div|li|h[1-6])>/gi, '\n')
+  if (typeof html !== 'string') return '';
+  return html.replace(/<h[1-6]\b[^>]*>/gi, '\n## ').replace(/<li\b[^>]*>/gi, '\n1. ')
+    .replace(/<\/(?:p|div|li|h[1-6])>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"');
 }
 
+function section(html, heading) {
+  const lines = descriptionText(html).split('\n');
+  const start = lines.findIndex(line => heading.test(line.replace(/^\s*#+\s*/, '').trim()));
+  if (start < 0) return null;
+  let end = start + 1;
+  while (end < lines.length && !/^\s*#+\s+/.test(lines[end]) &&
+    !/^\s*(?:Notes|Dependencies|Prerequisites|Business goal|Acceptance criteria)\b[^.!?]*$/i.test(lines[end])) end++;
+  return lines.slice(start + 1, end).join('\n');
+}
+
 export function acceptance(html) {
-  const text = descriptionText(html);
-  const heading = /(?:^|\n)\s*Acceptance criteria[^\n]*\n/i.exec(text);
-  if (!heading) return { ok: false, reason: 'acceptance criteria heading missing' };
-  const tail = text.slice(heading.index + heading[0].length);
-  const lines = tail.split('\n');
+  const body = section(html, /^Acceptance criteria\b/i);
+  if (body === null) return { ok: false, reason: 'acceptance criteria heading missing' };
   const criteria = [];
-  for (const line of lines) {
-    if (/^\s*(?:\d+[.)]|AC[- ]?\d+[:.])\s*\S+/i.test(line)) criteria.push(line.trim());
-    else if (criteria.length && line.trim()) break;
+  for (const line of body.split('\n')) {
+    if (/^\s*(?:\d+[.)]|AC[- ]?\d+[:.])/i.test(line)) criteria.push(line.trim());
   }
   const rubric = {
     non_empty: criteria.length > 0,
@@ -108,14 +122,49 @@ function exactLane(states, name) {
   return rows[0].id;
 }
 
-export function boardWip(board, workers, ownId = null) {
+export function boardWip(board, workers, execution = null) {
+  const ownId = execution?.ticket_id;
+  const commandId = execution?.intent?.envelope.command_id;
   const started = exactLane(board.states, 'In Progress');
   const working = new Set(board.labels.filter(l => l.name === 'agent:working').map(l => l.id));
-  return workers.active.some(w => idOf(w.ticket_id ?? w) !== ownId) || board.issues.some(i =>
+  return workers.active.some(w => !ownId || !commandId || w.ticket_id !== ownId || w.command_id !== commandId) || board.issues.some(i =>
     i.id !== ownId && (idOf(i.state) === started || (i.labels ?? []).some(l => working.has(idOf(l)))));
 }
 
+const predecessorsOf = relations => relations && ['blocked_by', 'blocking', 'start_after', 'finish_after']
+  .every(key => Array.isArray(relations[key])) ?
+  [...relations.blocked_by, ...relations.start_after, ...relations.finish_after] : null;
+
+function writtenReady(ticket, predecessors, board, byId, completed) {
+  const body = section(ticket.description_html, /^(?:prerequisites\/dependencies|dependencies|prerequisites)\b/i);
+  const inline = descriptionText(ticket.description_html).split('\n')
+    .filter(line => /\b(?:blocked by|depends on|waiting on)\b/i.test(line));
+  const obligations = [...(body === null ? [] : body.split('\n')), ...inline].map(line =>
+    line.replace(/^\s*(?:\d+[.)]|[-*])\s*/, '').trim()).filter(Boolean);
+  return obligations.every(line => {
+    if (/^(?:none|no (?:dependencies|prerequisites)|not applicable)[.!]?$/i.test(line)) return true;
+    const refs = line.match(/\b(?:[A-Z][A-Z0-9]*-\d+|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\b/gi) ?? [];
+    if (!refs.length) return false;
+    let prose = line;
+    for (const ref of refs) prose = prose.replace(ref, '');
+    prose = prose.replace(/\b(?:blocked by|depends on|waiting on|completion of|must be|requires?|and|or|after|completed?|done)\b/gi, '')
+      .replace(/[\s.,:;()[\]/&+-]/g, '');
+    if (prose) return false; // a non-ticket requirement cannot be inferred complete
+    return refs.every(ref => predecessors.some(r => {
+      const dependency = byId.get(r.issue_id);
+      return r.project_id === board.id && dependency && completed(dependency.id) &&
+        (ref === dependency.id || ref.toUpperCase() === `${board.identifier}-${dependency.sequence_id}`.toUpperCase());
+    }));
+  });
+}
+
 export function rankCandidates(board, now) {
+  require(typeof board.cycle_view === 'boolean', 'cycle configuration is unknown');
+  if (board.cycle_view) require(Array.isArray(board.cycles) && board.cycle_members &&
+    new Set(board.cycles.map(c => c.id)).size === board.cycles.length && board.cycles.every(c =>
+      nonblank(c.id) && Number.isFinite(Date.parse(c.start_date)) && Number.isFinite(Date.parse(c.end_date)) &&
+      Date.parse(c.start_date) <= Date.parse(c.end_date) && Array.isArray(board.cycle_members[c.id]) &&
+      board.cycle_members[c.id].every(nonblank)), 'cycle membership truth unavailable');
   const todo = exactLane(board.states, 'Todo');
   const started = exactLane(board.states, 'In Progress');
   const stateGroups = new Map(board.states.map(s => [s.id, s.group]));
@@ -139,17 +188,14 @@ export function rankCandidates(board, now) {
       !Array.isArray(relations.start_after) || !Array.isArray(relations.finish_after)) {
       refuse(i, 'dependency truth unavailable'); continue;
     }
-    const predecessors = [...relations.blocked_by, ...relations.start_after, ...relations.finish_after];
+    const predecessors = predecessorsOf(relations);
     if (predecessors.some(r => r.project_id !== board.id || !byId.has(r.issue_id) ||
       stateGroups.get(idOf(byId.get(r.issue_id).state)) !== 'completed')) {
       refuse(i, 'unresolved or unknown dependency'); continue;
     }
     // A written dependency that is not a native relation cannot silently disappear.
-    const text = descriptionText(i.description_html);
-    const dependencySection = /(?:prerequisites\/dependencies|dependencies|prerequisites)\s*\n([^]*?)(?=\n[^\n]+\n|$)/i.exec(text);
-    if (dependencySection && !/^\s*(?:none|no dependencies|not applicable)[.!]?\s*$/i.test(dependencySection[1]) &&
-      predecessors.length === 0) { refuse(i, 'written prerequisites have no resolved native dependency'); continue; }
-    if (/\b(?:blocked by|depends on|waiting on)\b/i.test(text) && predecessors.length === 0) {
+    const completed = id => stateGroups.get(idOf(byId.get(id)?.state)) === 'completed';
+    if (!writtenReady(i, predecessors, board, byId, completed)) {
       refuse(i, 'written dependency unresolved'); continue;
     }
     let cycle = 1;
@@ -163,8 +209,14 @@ export function rankCandidates(board, now) {
     if (!Object.hasOwn(PRIORITY, i.priority) || !Number.isFinite(Date.parse(i.created_at))) {
       refuse(i, 'unknown native priority or age'); continue;
     }
-    const critical = relations.blocking.filter(r => r.project_id === board.id && byId.has(r.issue_id) &&
-      !TERMINAL.has(stateGroups.get(idOf(byId.get(r.issue_id).state)))).length;
+    const critical = relations.blocking.filter(r => {
+      const target = byId.get(r.issue_id), remaining = predecessorsOf(board.relations[r.issue_id]);
+      const wouldComplete = id => id === i.id || completed(id);
+      return r.project_id === board.id && target && !TERMINAL.has(stateGroups.get(idOf(target.state))) &&
+        remaining?.some(dep => dep.issue_id === i.id && dep.project_id === board.id) &&
+        remaining.every(dep => dep.project_id === board.id && byId.has(dep.issue_id) && wouldComplete(dep.issue_id)) &&
+        writtenReady(target, remaining, board, byId, wouldComplete);
+    }).length;
     ranked.push({ ticket_id: i.id, ticket: i, criteria: rubric.criteria, rubric: rubric.rubric,
       score: [PRIORITY[i.priority], cycle, -critical, Date.parse(i.created_at), i.id],
       rationale: { priority: i.priority, eligible_cycle: cycle === 0, unblocks: critical,
@@ -189,6 +241,7 @@ export class Journal {
     require(j.contract === CONTRACT && j.intent?.envelope && ['uncertain', 'started', 'active', 'completed',
       'mutation_uncertain', 'mutation_conflict'].includes(j.phase), 'journal corrupt: explicit reconciliation required');
     require(digest(JSON.stringify(j.intent.envelope)) === j.intent.sha256, 'saved command body digest mismatch');
+    journalIdentity(j);
     require(j.phase !== 'completed' || (matchCompleted(j, j.completion?.terminal, j.route) &&
       Date.parse(j.completion.worker_observed_at) >= Date.parse(j.completion.terminal.time) &&
       j.completion.final_ticket?.id === j.ticket_id && nonblank(j.completion.final_ticket.state)),
@@ -216,11 +269,37 @@ export class Journal {
   }
 }
 
+function journalIdentity(j) {
+  const context = j.intent.envelope.data?.context;
+  require(context?.contract === CONTRACT && context.pipeline === PIPELINE &&
+    j.ticket_id === context.ticket_id && j.ticket_content_sha256 === context.ticket_content_sha256 &&
+    j.project?.id === context.project_id && j.project.id === context.repo &&
+    j.project.workspace === context.workspace && j.project.board_id === context.board_id &&
+    j.project.workdir === context.workdir && j.route?.agentId === j.intent.envelope.data.target_agent_id &&
+    j.route.profileName === context.profile_name && j.route.workspace === context.workspace &&
+    j.route.projectPath === context.workdir, 'journal identity differs from saved command context');
+}
+
+// Persistent identity belongs beside the authoritative lease, never in a
+// configurable journal directory. Creation is called only while owning that lease.
+export function journalBinding(c, create = false) {
+  require(realpathSync(c.runtime.state_dir) === c.runtime.state_dir &&
+    realpathSync(dirname(c.runtime.driver_lease)) === dirname(c.runtime.driver_lease), 'runtime storage must be canonical');
+  const path = `${c.runtime.driver_lease}.board-crank.json`;
+  const binding = { contract: 'board.crank.binding.v1', project: c.project,
+    driver_lease: c.runtime.driver_lease, state_dir: c.runtime.state_dir };
+  const entry = lstatSync(path, { throwIfNoEntry: false });
+  if (entry) {
+    require(entry.isFile() && !entry.isSymbolicLink(), 'journal binding is not a regular file');
+    require(isDeepStrictEqual(JSON.parse(readFileSync(path, 'utf8')), binding), 'persistent journal binding differs; owner reconciliation required');
+  } else if (create) new Journal(c.runtime.state_dir, c.project.board_id).write(path, binding);
+}
+
 function sameExecution(c, j) {
   require(j.project.id === c.project.id && j.project.workspace === c.project.workspace &&
     j.project.board_id === c.project.board_id && j.project.workdir === c.project.workdir &&
-    (j.phase === 'completed' || (j.contractor_digest === digest(JSON.stringify(c.contractor)) &&
-      j.runtime_digest === digest(JSON.stringify(c.runtime)))),
+    (j.phase === 'completed' || (j.contractor_digest === configDigest(c.contractor) &&
+      j.runtime_digest === configDigest(c.runtime))),
   'pending execution configuration changed; reconcile it explicitly');
 }
 
@@ -271,6 +350,7 @@ export async function reconcile(c, ports, { execute = false } = {}) {
   try {
     validateInput(c);
     let facts = validateRuntime(c, await ports.runtime(c), ports.now());
+    journalBinding(c);
     const journal = ports.journal ?? new Journal(c.runtime.state_dir, c.project.board_id);
     const original = journal.load();
     if (!original) return result('idle', 'no execution fence to reconcile');
@@ -280,6 +360,7 @@ export async function reconcile(c, ports, { execute = false } = {}) {
     if (!execute) return result('busy', 'inspect only; execution fence is preserved');
     if (!await ports.lease('acquire', c.runtime.driver_lease, owner)) return result('busy', 'shared driver lease occupied');
     held = true;
+    journalBinding(c);
     const j = journal.load();
     require(isDeepStrictEqual(j, original), 'journal changed before reconciliation');
     if (j.phase === 'completed') {
@@ -297,6 +378,7 @@ export async function reconcile(c, ports, { execute = false } = {}) {
     facts = validateRuntime(c, await ports.runtime(c), ports.now());
     const board = await ports.board(c);
     const final = await ports.ticket(c, j.ticket_id);
+    facts = validateRuntime(c, await ports.runtime(c), ports.now());
     require(board.id === c.project.board_id && final.id === j.ticket_id, 'completion board/ticket identity differs');
     const done = board.states.filter(s => s.name === 'Done' && s.group === 'completed');
     if (done.length !== 1 || idOf(final.state) !== done[0].id || facts.workers.active.length ||
@@ -331,8 +413,10 @@ export async function crank(c, ports, { execute = false, replay = false } = {}) 
   const refresh = async () => require(await ports.lease('refresh', c.runtime.driver_lease, owner), 'shared driver lease lost');
   try {
     validateInput(c);
-    const facts = await fresh();
+    let facts = await fresh();
+    journalBinding(c);
     const board = await ports.board(c);
+    facts = await fresh();
     require(board.id === c.project.board_id, 'provider board identity mismatch');
     const plan = rankCandidates(board, ports.now());
     journal = ports.journal ?? new Journal(c.runtime.state_dir, c.project.board_id);
@@ -340,7 +424,7 @@ export async function crank(c, ports, { execute = false, replay = false } = {}) 
     observedFence = j;
     if (j) sameExecution(c, j);
     if (j?.phase === 'completed') j = null;
-    if (await ports.leaseBusy(c.runtime.driver_lease) || boardWip(board, facts.workers, j?.ticket_id) ||
+    if (await ports.leaseBusy(c.runtime.driver_lease) || boardWip(board, facts.workers, j) ||
       (!j && facts.workers.active.length)) return answer('busy', 'shared driver lease or implementation WIP occupied');
     if (j?.phase === 'active' && execute) {
       const completion = await reconcile(c, ports, { execute: true });
@@ -356,6 +440,7 @@ export async function crank(c, ports, { execute = false, replay = false } = {}) 
       selected: selection?.ticket_id ?? j.ticket_id, ranked: plan.ranked.map(({ ticket, criteria, ...r }) => r), excluded: plan.excluded });
     if (!await ports.lease('acquire', c.runtime.driver_lease, owner)) return answer('busy', 'shared driver lease acquisition refused');
     leaseHeld = true;
+    journalBinding(c);
     // A contender may have observed null before another driver saved an intent
     // and released its lease. Only THIS read under the acquired lease decides
     // whether a command may be created. Never overwrite that intervening fence.
@@ -376,15 +461,17 @@ export async function crank(c, ports, { execute = false, replay = false } = {}) 
     // Re-read all mutable prerequisites after acquisition, and again before publication.
     let current = await fresh();
     let latest = await ports.board(c);
-    require(!boardWip(latest, current.workers, j?.ticket_id), 'implementation WIP changed after acquisition');
+    current = await fresh(); await refresh();
+    require(!boardWip(latest, current.workers, j), 'implementation WIP changed after acquisition');
     let currentPlan = rankCandidates(latest, ports.now());
     let chosen = j ? currentPlan.ranked.find(r => r.ticket_id === j.ticket_id) : currentPlan.ranked[0];
     if (!j && !chosen) return answer('idle', 'readiness changed after acquisition', { excluded: currentPlan.excluded });
     if (!j) {
+      journalBinding(c, true);
       const intent = await ports.command(c, chosen, current.route);
       j = { contract: CONTRACT, phase: 'uncertain', project: c.project,
-        contractor_digest: digest(JSON.stringify(c.contractor)), ticket_id: chosen.ticket_id,
-        runtime_digest: digest(JSON.stringify(c.runtime)),
+        contractor_digest: configDigest(c.contractor), ticket_id: chosen.ticket_id,
+        runtime_digest: configDigest(c.runtime), ticket_content_sha256: ticketRevision(chosen.ticket),
         selected: { score: chosen.score, rationale: chosen.rationale, rubric: chosen.rubric },
         ranking: currentPlan.ranked.map(({ ticket, criteria, ...r }) => r), exclusions: currentPlan.excluded,
         intent: { envelope: intent, sha256: digest(JSON.stringify(intent)) },
@@ -402,7 +489,10 @@ export async function crank(c, ports, { execute = false, replay = false } = {}) 
       current = await fresh();
       latest = await ports.board(c);
       currentPlan = rankCandidates(latest, ports.now());
-      require(!boardWip(latest, current.workers, j.ticket_id) && currentPlan.ranked.some(r => r.ticket_id === j.ticket_id),
+      const prompted = await ports.ticket(c, j.ticket_id);
+      require(ticketRevision(prompted) === j.ticket_content_sha256, 'prompted ticket content changed; exact intent remains fenced');
+      current = await fresh(); await refresh();
+      require(!boardWip(latest, current.workers, j) && currentPlan.ranked.some(r => r.ticket_id === j.ticket_id),
         'board WIP/readiness changed before publication');
       require(current.route.agentId === j.route.agentId && current.route.profileName === j.route.profileName,
         'route changed before publication');
@@ -426,13 +516,15 @@ export async function crank(c, ports, { execute = false, replay = false } = {}) 
     // The state/date write is guarded by fresh binding, lane, WIP and ticket reads.
     current = await fresh();
     latest = await ports.board(c);
+    current = await fresh(); await refresh();
     require(current.route.agentId === j.route.agentId && current.route.profileName === j.route.profileName,
       'route changed after started acknowledgement');
-    require(!boardWip(latest, current.workers, j.ticket_id), 'another implementation appeared after started receipt');
+    require(!boardWip(latest, current.workers, j), 'another implementation appeared after started receipt');
     const inProgress = exactLane(latest.states, 'In Progress');
     const todo = exactLane(latest.states, 'Todo');
     let ticket = await ports.ticket(c, j.ticket_id);
     require(ticket.id === j.ticket_id, 'ticket readback identity mismatch');
+    require(ticketRevision(ticket) === j.ticket_content_sha256, 'prompted ticket content changed after start; claim remains fenced');
     if (j.patch) {
       // An ambiguous write is NEVER replayed. Inspect what is stored and leave
       // human changes intact. A missing part needs explicit reconciliation.
@@ -462,11 +554,15 @@ export async function crank(c, ports, { execute = false, replay = false } = {}) 
       await refresh();
       const immediate = await ports.ticket(c, ticket.id);
       if (immediate.id !== ticket.id || immediate.updated_at !== ticket.updated_at ||
-        idOf(immediate.state) !== idOf(ticket.state) || (immediate.start_date ?? null) !== (ticket.start_date ?? null)) {
+        idOf(immediate.state) !== idOf(ticket.state) || (immediate.start_date ?? null) !== (ticket.start_date ?? null) ||
+        ticketRevision(immediate) !== j.ticket_content_sha256) {
         j.phase = 'mutation_conflict';
         j.receipts.push({ kind: 'mutation', status: 'concurrent_change_preserved' }); save();
         return answer('uncertain', 'ticket changed immediately before PATCH; preserved', { ticket_id: j.ticket_id });
       }
+      current = await fresh(); await refresh();
+      require(current.route.agentId === j.route.agentId && current.route.profileName === j.route.profileName &&
+        !boardWip(latest, current.workers, j), 'execution eligibility changed immediately before PATCH');
       try { await ports.patch(c, ticket.id, fields); }
       catch { j.receipts.push({ kind: 'mutation', status: 'uncertain' }); save(); }
     }

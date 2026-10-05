@@ -32,6 +32,13 @@ lifecycle, and exits. It first attempts reconciliation of an active prior journa
 `reconcile` retires a proven completed fence without dispatch or ticket changes.
 Exit 78 means refused/uncertain, 124 means the 45-second budget expired.
 Busy and idle are normal exit-zero outcomes, distinguished in JSON.
+The entry point supervises each pass in a detached subprocess. Its external
+wall-clock limit includes synchronous Pilot/1Password reads. Timeout or child
+error kills the entire process group and emits a sanitized result; already
+fsynced intent remains an execution fence. Successful JSON is parsed after the
+child's `close` event, when stdout has drained. Child stderr is discarded and
+stdout is limited to 256 KiB. `MOMO_BOARD_CRANK_BUDGET_MS` is a private fixture
+control that can shorten, never extend, the production limit.
 
 ## Deployment gate
 
@@ -56,10 +63,15 @@ are checked on each pass. This is an acceptance attestation, not an automatic
 installed-service audit. Fabricated/stale attestations are not deployment proof.
 
 `skillDigest(skillRoot)` in `scripts/lib/board_crank_ports.mjs` computes SHA256 of
-SKILL.md, delegation.md and board-clearing-loop.md joined with NUL. Changed bundles
-need new acceptance; pending work binds the complete contractor and runtime
-configuration, including receipt paths and broker, and refuses changes. Keep the
-accepted per-board journal directory stable while any execution remains pending.
+the canonical JSON array of sorted relative file paths and their content SHA256s:
+SKILL.md and all files under references/, scripts/ and contracts/, excluding
+tests/ and __pycache__/. This includes the executable adapter, lease helper and
+schemas. File additions, renames and content edits change acceptance identity.
+The executing source bundle must also match the installed accepted bundle.
+Changed bundles need new acceptance; pending work binds the complete contractor
+and runtime configuration, including receipt paths and broker, and refuses
+changes. Configuration hashing sorts object keys recursively; it does not change
+saved envelope bytes. Keep the accepted per-board journal directory stable.
 
 The same runtime owner produces `board.crank.workers.v1` from actual implementation
 and review supervision: board, `observed_at` and every pending/active/review
@@ -82,27 +94,51 @@ receipts also belong outside source or in existing
 ignored runtime storage. A NATS URL cannot contain credentials. There is no
 source-side runtime setup or default enabled input.
 
+Before its first intent, while owning and refreshing that same driver lease,
+execute atomically persists `${driver_lease}.board-crank.json` beside the lease.
+The binding records the project, authoritative driver and canonical `state_dir`;
+its file and containing directory are fsynced. All later configurations must
+match it, including configurations carrying a renewed runtime receipt. A new
+receipt cannot relocate a journal or hide its original uncertain execution.
+Inspect/dry-run never creates this binding. Missing canonical storage, symlinks,
+corrupt or differing bindings fail closed. The runtime owner investigates any
+storage migration; there is no public rotation/clear command or TTL retirement.
+No new manifest field is required.
+
 ## Readiness and selection
 
 Only the unique exact `Todo` lane with `lifecycle:triaged` is considered. Tickets
 need a title, enumerated/testable acceptance criteria and FR references. Drafts,
 archives, deleted items, blocked/refining/needs-input labels, epic labels and
 parents with children are excluded. Written unresolved prerequisites without
-matching native dependencies are excluded.
+matching completed native predecessors are excluded. Every written reference
+must match; one completed predecessor does not satisfy other written blockers.
+Explicit no-dependency prose remains valid. Nonstring descriptions are thin
+input and do not abort a mixed board. Only the acceptance section supplies
+criteria, and every enumerated criterion is validated, including criteria after
+interleaved prose; numbered Notes cannot fortify an empty acceptance section.
 
 Pilot's current Plane API supplies `work-items/<id>/relations/`. Every `blocked_by`,
 `start_after` and `finish_after` predecessor must be known on this board and
 completed; cancellation does not satisfy a dependency. Missing/unknown/cross-board
-dependency truth excludes the candidate. Cycle-enabled boards must supply current
-cycles/memberships; future/finished assignments are ineligible. Cycle-disabled
-boards do not invent cycles. Rank urgent/high/medium/low/none, then active-cycle
-fit, known downstream tickets unblocked, oldest creation time and stable ID.
+dependency truth excludes the candidate. Cycle configuration must be an explicit
+boolean. Cycle-enabled boards must supply trustworthy cycles/memberships;
+future/finished assignments are ineligible. Cycle-disabled boards do not invent
+cycles. Rank urgent/high/medium/low/none, then active-cycle fit, known downstream
+tickets unblocked, oldest creation time and stable ID. Downstream credit requires
+observed predecessors and written requirements showing this ticket would resolve
+every remaining blocker; unknown relations or additional blockers earn no credit.
 Scores, rubric, rationale and exclusions persist in the journal.
 
 Any exact In Progress ticket, agent:working ticket or fresh runtime execution
-blocks new dispatch. Expired driver TTL never frees implementation WIP. A pass
-caps Todo hydration at 100 items and has a 45-second watchdog; a larger or
-unobservable board refuses rather than selecting from a partial sample.
+blocks new dispatch. During recovery only a worker with both the saved ticket
+and exact command ID is exempt; foreign/missing command IDs on the same ticket
+still fence replay and writes. Expired driver TTL never frees implementation WIP.
+A pass caps Todo hydration at 100 items. Native relations, downstream target
+relations and enabled cycle membership share a 5-second hydration deadline with
+at most eight concurrent reads, retaining dispatch/readback time within the
+45-second supervised pass. A larger or unobservable board refuses rather than
+selecting from a partial sample.
 
 ## Dispatch and recovery
 
@@ -119,13 +155,23 @@ connection seam uses its installed official JetStream client to require a
 BLOODBANK_COMMANDS PubAck. Stable IDs and identical bytes reach the gateway's
 command-ID/envelope-digest journal. There is no new bus subject or copied
 envelope/wire/credential grammar.
+Journal ticket, project and route identities must match that envelope's context
+and target before recovery. The intent also binds a content revision of the
+prompted ticket ID, title, sequence and description. Fresh content must match
+immediately before publication/replay and after start before claiming the ticket.
+A changed eligible requirement keeps the exact original command fenced; it does
+not mint a replacement prompt or command automatically.
 
 PubAck is storage evidence. Started proof needs schema-valid turn.started caused
 by the command and invocation.started caused by that turn. Command/idempotency,
 correlation, target/profile, producer/service, thread/turn and full context must
 match. Gateway starts precede actual Hermes handling: they acknowledge that
 lifecycle, not proof that a delegated worker finished. Retained receipts are read
-through Bloodbank direct-get helpers without creating a consumer.
+through Bloodbank direct-get helpers without creating a consumer. Searches begin
+with a recent 16-sequence window and at most 100 requests, with 500-ms started
+searches and a 1-second completed search. This bounded near-tip search reaches
+recent matching events amid dense unrelated history; absence within the budget
+preserves uncertainty rather than proving no execution.
 
 After matching start, reload runtime, route, board and selected ticket. PATCH only
 state and an absent start_date through Pilot editIssue. Preserve labels, assignees
@@ -133,6 +179,9 @@ and unrelated content. An immediate second ticket read refuses detected human
 changes; journal the PATCH intent before sending and read back afterwards. Plane
 does not supply an atomic conditional write here, so the final read/PATCH window
 remains a concurrency limitation for independent review.
+Runtime acceptance and worker freshness are rechecked, and the lease refreshed,
+after hydration immediately before publication and provider mutation. Truth that
+was fresh before a slow hydration cannot authorize a later external effect.
 
 Publication failure or unmatched start leaves the ticket ready and retains
 uncertainty. A normal pass checks receipts; explicit `--replay` sends only the

@@ -1,10 +1,10 @@
 import { createRequire } from 'node:module';
-import { readFileSync, realpathSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, realpathSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { CONTRACT, PIPELINE, ControlRefusal, digest, matchStarted, matchCompleted } from './board_crank.mjs';
+import { CONTRACT, PIPELINE, ControlRefusal, canonicalJSON, digest, ticketRevision, matchStarted, matchCompleted } from './board_crank.mjs';
 
 const read = path => JSON.parse(readFileSync(path, 'utf8'));
 const assert = (ok, message) => { if (!ok) throw new ControlRefusal(message); };
@@ -22,8 +22,19 @@ export function loadBloodbank(root) {
 }
 
 export function skillDigest(root) {
-  return digest(['SKILL.md', 'references/delegation.md', 'references/board-clearing-loop.md']
-    .map(path => readFileSync(join(root, path), 'utf8')).join('\0'));
+  const files = [];
+  const walk = path => {
+    for (const entry of readdirSync(join(root, path), { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (['tests', '__pycache__'].includes(entry.name)) continue;
+      const name = `${path}/${entry.name}`;
+      assert(!entry.isSymbolicLink(), 'installed bundle contains a symlink');
+      if (entry.isDirectory()) walk(name);
+      else { assert(entry.isFile(), 'installed bundle contains a non-file'); files.push(name); }
+    }
+  };
+  for (const path of ['references', 'scripts', 'contracts']) walk(path);
+  files.push('SKILL.md');
+  return digest(canonicalJSON(files.sort().map(path => [path, digest(readFileSync(join(root, path)))])));
 }
 
 export function resolveRoute(bb, registry, c) {
@@ -45,7 +56,8 @@ export function commandFor(bb, c, chosen, route, now = Date.now()) {
     project_id: c.project.id, repo: c.project.id, workspace: c.project.workspace,
     board_id: c.project.board_id, ticket_id: chosen.ticket_id, ticket_key: facts.ticketKey,
     workdir: c.project.workdir, memory_policy: c.contractor.memory_policy, roles: c.contractor.roles,
-    driver_lease: c.runtime.driver_lease };
+    driver_lease: c.runtime.driver_lease, profile_name: route.profileName,
+    ticket_content_sha256: ticketRevision(chosen.ticket) };
   const prompt = bb.fleet.delegationPrompt(facts, c.project.workdir) + '\n\n' +
     'BOARD.CRANK INVOCATION OVERRIDES for this existing ticket:\n' +
     `Contractor ${c.contractor.name}, version ${c.contractor.version}, pipeline ${PIPELINE}.\n` +
@@ -105,18 +117,19 @@ export async function publishExact(bb, c, envelope) {
     duplicate: Boolean(puback.duplicate), command_id: envelope.command_id };
 }
 
-export async function loadProductionPorts({ pilotRoot, bloodbankRoot, sourceRoot }) {
+export async function loadProductionPorts({ pilotRoot, bloodbankRoot, sourceRoot, bloodbank }) {
   const config = await import(pathToFileURL(join(pilotRoot, 'src/config.js')));
   const { Plane } = await import(pathToFileURL(join(pilotRoot, 'src/plane.js')));
-  const bb = loadBloodbank(bloodbankRoot);
+  const bb = bloodbank ?? loadBloodbank(bloodbankRoot);
   const schema = read(join(sourceRoot, 'skill/contracts/board.crank.v1.json'));
   const ajv = new bb.Ajv({ strict: false, allErrors: true }); bb.formats(ajv);
   ajv.addSchema(schema);
   const validate = (name, value) => assert(ajv.getSchema(`${schema.$id}#/$defs/${name}`)(value), `invalid ${name} contract`);
   // Bound Pilot's existing HTTP client; no second credential/HTTP implementation.
   const fetch = globalThis.fetch;
+  let hydrationSignal;
   globalThis.fetch = (url, options = {}) => fetch(url, { ...options,
-    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(2500)]) : AbortSignal.timeout(2500) });
+    signal: AbortSignal.any([options.signal, hydrationSignal, AbortSignal.timeout(2500)].filter(Boolean)) });
   let plane;
   const provider = c => {
     const cfg = config.requireBoard(config.loadConfig({ workspace: c.project.workspace, board: c.project.board_id }));
@@ -164,27 +177,53 @@ export async function loadProductionPorts({ pilotRoot, bloodbankRoot, sourceRoot
       provider(c); // Pilot owns credential resolution; resolved secrets remain in memory.
       const deployment = read(c.runtime.deployment_receipt), workers = read(c.runtime.worker_status_file);
       validate('runtime', deployment); validate('workers', workers);
-      return { manifest, route, deployment, workers, skillSha256: skillDigest(c.contractor.skill_root) };
+      const skillSha256 = skillDigest(c.contractor.skill_root);
+      assert(skillDigest(join(sourceRoot, 'skill')) === skillSha256, 'executing adapter differs from accepted installed bundle');
+      return { manifest, route, deployment, workers, skillSha256 };
     },
     async board(c) {
       const p = provider(c);
       const [project, states, issues, labels] = await Promise.all([p.project(), p.states(), p.issues(), p.collection('labels')]);
+      assert(typeof project.cycle_view === 'boolean', 'cycle configuration is unknown');
       const todos = new Set(states.filter(s => s.name === 'Todo').map(s => s.id));
       const candidates = issues.filter(i => todos.has(i.state));
       assert(candidates.length <= 100, 'too many Todo items for a bounded pass');
       const relations = {};
-      for (const i of candidates) {
-        try { relations[i.id] = await p.get(`${p.boardUrl()}/work-items/${i.id}/relations/`); }
-        catch { relations[i.id] = null; } // missing dependency truth excludes; never invent []
-      }
       let cycles = [], cycle_members = {};
-      if (project.cycle_view) {
-        cycles = await p.collection('cycles');
-        for (const cycle of cycles) cycle_members[cycle.id] = (await p.pages(`${p.boardUrl()}/cycles/${cycle.id}/cycle-issues/`))
-          .map(row => typeof row.issue === 'object' ? row.issue.id : row.issue ?? row.issue_id);
+      const controller = new AbortController(); hydrationSignal = controller.signal;
+      let timer;
+      const map = async (items, work) => {
+        let next = 0;
+        await Promise.all(Array.from({ length: Math.min(8, items.length) }, async () => {
+          while (next < items.length) { assert(!controller.signal.aborted, 'board hydration budget exhausted'); await work(items[next++]); }
+        }));
+      };
+      const hydrate = async items => map(items, async i => {
+        try { relations[i.id] = await p.get(`${p.boardUrl()}/work-items/${i.id}/relations/`); }
+        catch { relations[i.id] = null; } // missing truth excludes; never invent []
+      });
+      try {
+        await Promise.race([(async () => {
+          await hydrate(candidates);
+          const targets = new Set(candidates.flatMap(i => (relations[i.id]?.blocking ?? [])
+            .filter(r => r.project_id === c.project.board_id).map(r => r.issue_id)));
+          await hydrate(issues.filter(i => targets.has(i.id) && !Object.hasOwn(relations, i.id)));
+          if (project.cycle_view) {
+            cycles = await p.collection('cycles');
+            await map(cycles, async cycle => {
+              cycle_members[cycle.id] = (await p.pages(`${p.boardUrl()}/cycles/${cycle.id}/cycle-issues/`))
+                .map(row => typeof row === 'string' ? row : typeof row.issue === 'object' ? row.issue?.id : row.issue ?? row.issue_id);
+              assert(cycle_members[cycle.id].every(id => typeof id === 'string' && id.length), 'cycle membership is malformed');
+            });
+          }
+        })(), new Promise((_, reject) => { timer = setTimeout(() => {
+          controller.abort(); reject(new ControlRefusal('board hydration budget exhausted'));
+        }, 5000); })]);
+      } finally {
+        clearTimeout(timer); controller.abort(); hydrationSignal = undefined;
       }
       return { id: c.project.board_id, states, issues, labels, relations,
-        cycle_view: project.cycle_view, cycles, cycle_members };
+        identifier: p.cfg.identifier, cycle_view: project.cycle_view, cycles, cycle_members };
     },
     async ticket(c, id) { return provider(c).get(`${provider(c).boardUrl()}/issues/${id}/`); },
     async patch(c, id, fields) { return provider(c).editIssue(id, { fields }); },
@@ -194,7 +233,7 @@ export async function loadProductionPorts({ pilotRoot, bloodbankRoot, sourceRoot
       const type = 'bloodbank.agent.invocation.completed';
       return bb.replay.withDirectGet({ host: c.runtime.nats_server, timeoutMs: 1500 }, async get => {
         const found = await bb.replay.findLatestMatching(get, 'BLOODBANK_EVENTS', bb.nats.subjectFor(type, 'event'),
-          event => matchCompleted(j, event, route), { budgetMs: 1000, maxRequests: 100 });
+          event => matchCompleted(j, event, route), { budgetMs: 1000, maxRequests: 100, initialWindow: 16 });
         if (found) bb.nats.validateEnvelope(type, found.envelope);
         return found?.envelope;
       });
@@ -207,7 +246,7 @@ export async function loadProductionPorts({ pilotRoot, bloodbankRoot, sourceRoot
           for (const type of ['bloodbank.conversation.turn.started', 'bloodbank.agent.invocation.started']) {
             const found = await bb.replay.findLatestMatching(get, 'BLOODBANK_EVENTS', bb.nats.subjectFor(type, 'event'),
               event => event.data?.command_id === envelope.command_id && event.data?.target_agent_id === route.agentId,
-              { budgetMs: Math.max(1, Math.min(deadline - Date.now(), 500)), maxRequests: 100 });
+              { budgetMs: Math.max(1, Math.min(deadline - Date.now(), 500)), maxRequests: 100, initialWindow: 16 });
             if (found) bb.nats.validateEnvelope(type, found.envelope);
             pair.push(found?.envelope);
           }

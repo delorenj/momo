@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, statSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, statSync, lstatSync, symlinkSync, cpSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { crank, reconcile, Journal, rankCandidates, matchStarted, matchCompleted } from '../lib/board_crank.mjs';
+import { crank, reconcile, Journal, rankCandidates, matchStarted, matchCompleted, validateRuntime } from '../lib/board_crank.mjs';
 import { loadBloodbank, loadProductionPorts, commandFor, publishExact, resolveRoute, skillDigest } from '../lib/board_crank_ports.mjs';
 
 // Use the current canonical builders/validators, with no broker, HTTP or vault.
@@ -36,7 +36,7 @@ function receipts(envelope, route) {
     profile_name: route.profileName, thread_id: `bloodbank:${envelope.correlationid}`, turn_id: envelope.command_id };
   const common = { source: 'urn:33god:service:bloodbank-hermes-gateway', producer: `hermes-agent:${route.profileName}`,
     service: 'bloodbank-hermes-gateway', actor: { type: 'agent_api', agent_id: route.agentId, cli: 'hermes' },
-    correlationId: envelope.correlationid, orderingKey: `turn:${envelope.command_id}`, observedAt: new Date(clock).toISOString() };
+    correlationId: envelope.correlationid, orderingKey: `turn:${envelope.command_id}`, observedAt: envelope.time };
   const turn = bb.nats.buildEnvelope({ ...common, type: 'bloodbank.conversation.turn.started',
     causationId: envelope.id, data: { ...data, prompt_text: null } }).envelope;
   const started = bb.nats.buildEnvelope({ ...common, type: 'bloodbank.agent.invocation.started',
@@ -59,10 +59,10 @@ function fixture(t, issues = [ticket(1), ticket(2)]) {
       profile_root: dir, nats_server: 'nats://fixture.invalid:4222', ack_timeout_ms: 1000 } };
   const route = { agentId: 'test-pm', eligible: true, matchedBy: 'board', profileName: 'test-pm',
     workspace: c.project.workspace, identifier: 'TEST', projectPath: dir };
-  const f = { c, dir, clock, route, commands: [], patches: [], runtimeReads: 0, ticketReads: 0,
+  const f = { c, dir, clock, route, commands: [], patches: [], runtimeReads: 0, boardReads: 0, ticketReads: 0,
     acknowledge: true, publishFails: false, patchFails: false, partial: false, acquireCalls: 0,
     workers: { contract: 'board.crank.workers.v1', board_id: boardId, observed_at: new Date(clock).toISOString(), active: [] },
-    board: { id: boardId, states: clone(states), labels: clone(labels), issues: clone(issues), relations: {}, cycle_view: false } };
+    board: { id: boardId, identifier: 'TEST', states: clone(states), labels: clone(labels), issues: clone(issues), relations: {}, cycle_view: false } };
   for (const i of issues) f.board.relations[i.id] = emptyRelations();
   const deployment = { contract: 'board.crank.runtime.v1', accepted: true, pipeline: 'momo-per-ticket',
     contractor: 'momo', version: '1', project_id: c.project.id, board_id: boardId, workdir: dir,
@@ -81,7 +81,7 @@ function fixture(t, issues = [ticket(1), ticket(2)]) {
         board_id: boardId, workspace: c.project.workspace }, execution: { mode: f.mode ?? 'legacy' } },
       route: clone(f.route), deployment: clone(f.deployment), workers: clone(f.workers), skillSha256: c.contractor.skill_sha256 };
     },
-    async board() { return clone(f.board); },
+    async board() { await f.onBoard?.(++f.boardReads); return clone(f.board); },
     async leaseBusy(path) {
       if (!existsSync(path)) return false;
       const lease = JSON.parse(readFileSync(path));
@@ -120,7 +120,7 @@ function fixture(t, issues = [ticket(1), ticket(2)]) {
     },
     async ticket(c, id) {
       f.ticketReads++; f.onTicket?.(f.ticketReads);
-      if (f.readbackFails && f.ticketReads === 3) throw new Error('fixture readback unavailable');
+      if (f.readbackFails && f.patches.length) throw new Error('fixture readback unavailable');
       return clone(f.board.issues.find(i => i.id === id));
     },
     async patch(c, id, fields) {
@@ -198,8 +198,10 @@ test('ranking is priority, cycle fit, critical dependency path, age, stable ID',
   assert.equal(rankCandidates(f.board, f.clock).ranked[0].ticket_id, ticketId(3));
   f.board.cycle_view = false;
   f.board.relations[ticketId(3)].blocking.push({ project_id: boardId, issue_id: ticketId(1) });
+  f.board.relations[ticketId(1)].blocked_by.push({ project_id: boardId, issue_id: ticketId(3) });
   assert.equal(rankCandidates(f.board, f.clock).ranked[0].ticket_id, ticketId(3));
   f.board.relations[ticketId(3)].blocking = [];
+  f.board.relations[ticketId(1)].blocked_by = [];
   f.board.issues[2].created_at = '2026-09-01T00:00:00Z';
   assert.equal(rankCandidates(f.board, f.clock).ranked[0].ticket_id, ticketId(3));
   f.board.issues[2].created_at = f.board.issues[1].created_at;
@@ -305,7 +307,7 @@ test('crash after PATCH with no readback recovers from stored fields and never P
 
 test('human changes immediately before PATCH are preserved with zero writes', async t => {
   const f = fixture(t);
-  f.onTicket = count => { if (count === 2) Object.assign(f.board.issues[0],
+  f.onTicket = () => { if (f.journal.load()?.phase === 'mutation_uncertain' && !f.patches.length) Object.assign(f.board.issues[0],
     { state: 'blocked', start_date: '2026-09-01', updated_at: '2026-10-05T10:30:00Z' }); };
   assert.equal((await f.run()).status, 'uncertain'); assert.equal(f.patches.length, 0);
   assert.equal(f.board.issues[0].state, 'blocked'); assert.equal(f.board.issues[0].start_date, '2026-09-01');
@@ -313,7 +315,7 @@ test('human changes immediately before PATCH are preserved with zero writes', as
 
 test('a conflicting readback date remains uncertain and is never corrected automatically', async t => {
   const f = fixture(t);
-  f.onTicket = count => { if (count === 3) f.board.issues[0].start_date = '2026-09-01'; };
+  f.onTicket = () => { if (f.patches.length) f.board.issues[0].start_date = '2026-09-01'; };
   assert.equal((await f.run()).status, 'uncertain');
   assert.equal(f.journal.load().phase, 'mutation_conflict');
   assert.equal((await f.run({ replay: true })).status, 'busy');
@@ -321,15 +323,18 @@ test('a conflicting readback date remains uncertain and is never corrected autom
 });
 
 test('eligibility is reloaded immediately before publication and after acknowledgement', async t => {
-  for (const at of [3, 4]) {
-    const f = fixture(t); f.onRuntime = n => { if (n === at) f.route.eligible = false; };
+  for (const at of ['before-publish', 'after-start']) {
+    const f = fixture(t); f.onRuntime = () => {
+      if (at === 'before-publish' && f.journal.load()?.phase === 'uncertain' && !f.commands.length ||
+        at === 'after-start' && f.journal.load()?.phase === 'started') f.route.eligible = false;
+    };
     assert.equal((await f.run()).status, 'uncertain'); assert.equal(f.patches.length, 0);
-    assert.equal(f.commands.length, at === 3 ? 0 : 1);
+    assert.equal(f.commands.length, at === 'before-publish' ? 0 : 1);
   }
 });
 
 test('WIP appearing after acquire aborts before journal or dispatch', async t => {
-  const f = fixture(t); f.onRuntime = n => { if (n === 2) f.board.issues[1].state = 'started'; };
+  const f = fixture(t); f.onBoard = n => { if (n === 2) f.board.issues[1].state = 'started'; };
   assert.equal((await f.run()).status, 'refused'); f.zero();
 });
 
@@ -581,8 +586,8 @@ test('worker activity discovered after terminal lookup preserves the completion 
   assert.equal(readFileSync(f.journal.path, 'utf8'), before); assert.equal(f.commands.length, 1);
 });
 
-test('actual Pilot and Bloodbank production boundary uses exported APIs with fixture-only HTTP', async t => {
-  const f = fixture(t);
+async function productionFixture(t, issues, bloodbank) {
+  const f = fixture(t, issues);
   const sourceRoot = resolve(scripts, '../..');
   const oldCwd = process.cwd(), oldFetch = globalThis.fetch;
   const keys = ['PILOT_CONFIG_DIR', 'PLANE_API_KEY', 'KREBS_MANIFESTS'];
@@ -614,19 +619,27 @@ test('actual Pilot and Bloodbank production boundary uses exported APIs with fix
   globalThis.fetch = async (url, options) => {
     assert.equal(options.headers['X-API-Key'], 'fixture');
     calls.push({ url: String(url), method: options.method, body: options.body });
+    await f.onHTTP?.(String(url), options);
     let value;
     if (options.method === 'PATCH') {
       const body = JSON.parse(options.body); Object.assign(f.board.issues[0], body); value = f.board.issues[0];
     } else if (String(url).endsWith('/states/')) value = f.board.states;
     else if (String(url).endsWith('/issues/')) value = { results: f.board.issues, next: null };
     else if (String(url).endsWith('/labels/')) value = f.board.labels;
-    else if (String(url).endsWith('/relations/')) value = emptyRelations();
+    else if (String(url).endsWith('/relations/')) value = f.board.relations[String(url).match(/\/work-items\/([^/]+)/)[1]];
+    else if (String(url).endsWith('/cycle-issues/')) value = { results: f.httpMembers ?? [], next: null };
+    else if (String(url).endsWith('/cycles/')) value = f.board.cycles ?? [];
     else if (String(url).includes('/issues/')) value = f.board.issues[0];
-    else value = { cycle_view: false };
+    else value = { cycle_view: f.board.cycle_view };
     return new Response(JSON.stringify(value), { status: 200 });
   };
   const ports = await loadProductionPorts({ pilotRoot: process.env.PILOT_SOURCE_ROOT,
-    bloodbankRoot: process.env.BLOODBANK_SOURCE_ROOT, sourceRoot });
+    bloodbankRoot: process.env.BLOODBANK_SOURCE_ROOT, sourceRoot, bloodbank });
+  return { f, ports, calls, state };
+}
+
+test('actual Pilot and Bloodbank production boundary uses exported APIs with fixture-only HTTP', async t => {
+  const { f, ports, calls, state } = await productionFixture(t);
   const alias = join(f.dir, 'state-alias'); symlinkSync(state, alias);
   const aliased = clone(f.c); aliased.runtime.state_dir = alias;
   await assert.rejects(() => ports.runtime(aliased), /journal directory must be canonical/);
@@ -638,4 +651,250 @@ test('actual Pilot and Bloodbank production boundary uses exported APIs with fix
   const patch = calls.filter(c => c.method === 'PATCH'); assert.equal(patch.length, 1);
   assert.deepEqual(JSON.parse(patch[0].body), { state: 'started', start_date: '2026-10-05' });
   assert.deepEqual(f.board.issues[0].assignees, ['existing-person']); assert.deepEqual(f.board.issues[0].labels, ['triaged']);
+});
+
+test('production hydration carries nonempty native sequencing relations and string/object cycle memberships into selection', async t => {
+  const { f, ports } = await productionFixture(t, [ticket(1), ticket(2), ticket(9, { state: 'blocked' })]);
+  f.board.relations[ticketId(1)].start_after = [{ project_id: boardId, issue_id: ticketId(9) }];
+  f.board.relations[ticketId(2)].finish_after = [{ project_id: boardId, issue_id: ticketId(9) }];
+  assert.equal(rankCandidates(await ports.board(f.c), clock).ranked.length, 0);
+  f.board.issues[2].state = 'done';
+  f.board.cycle_view = true;
+  f.board.cycles = [{ id: 'current', start_date: '2026-10-01', end_date: '2026-10-20' }];
+  for (const member of [ticketId(2), { issue: ticketId(2) }, { issue: { id: ticketId(2) } }]) {
+    f.httpMembers = [member];
+    const hydrated = await ports.board(f.c);
+    assert.equal(hydrated.relations[ticketId(2)].finish_after[0].issue_id, ticketId(9));
+    assert.deepEqual(hydrated.cycle_members.current, [ticketId(2)]);
+    assert.equal(rankCandidates(hydrated, clock).ranked[0].ticket_id, ticketId(2));
+  }
+});
+
+test('production relation hydration bounds concurrency and retains dispatch/readback budget', async t => {
+  const { f, ports } = await productionFixture(t, Array.from({ length: 100 }, (_, n) => ticket(n + 1)));
+  let active = 0, maximum = 0;
+  f.onHTTP = async url => {
+    if (!url.endsWith('/relations/')) return;
+    maximum = Math.max(maximum, ++active);
+    await new Promise(resolve => setTimeout(resolve, 150)); active--;
+  };
+  const begin = Date.now(), board = await ports.board(f.c);
+  assert.equal(Object.keys(board.relations).length, 100);
+  assert.ok(maximum > 1 && maximum <= 8, `observed concurrency ${maximum}`);
+  assert.ok(Date.now() - begin < 5000);
+});
+
+test('production receipt ports use canonical direct-get traversal through dense history to dispatch and reconcile', async t => {
+  const history = [], requests = [];
+  const append = envelope => history.push({ seq: history.length + 1, subject: bb.nats.subjectFor(envelope.type, 'event'), envelope });
+  const connect = async () => ({
+    async request(subject, payload) {
+      assert.equal(subject, '$JS.API.DIRECT.GET.BLOODBANK_EVENTS');
+      const query = JSON.parse(payload); requests.push(query);
+      const rows = history.filter(row => row.subject === (query.last_by_subj ?? query.next_by_subj));
+      const row = query.last_by_subj ? rows.at(-1) : rows.find(row => row.seq >= query.seq);
+      if (!row) return { headers: { code: 404 } };
+      return { headers: { get: key => key === 'Nats-Sequence' ? String(row.seq) : key === 'Nats-Subject' ? row.subject : '' },
+        data: Buffer.from(JSON.stringify(row.envelope)) };
+    }, async close() {},
+  });
+  const bloodbank = { ...bb, replay: { ...bb.replay,
+    withDirectGet: (options, work) => bb.replay.withDirectGet(options, work, connect) } };
+  const { f, ports } = await productionFixture(t, [ticket(1)], bloodbank);
+  const terminalFixture = f.ports.completed;
+  const dense = event => {
+    const foreign = clone(event); foreign.data.command_id = crypto.randomUUID();
+    for (let n = 0; n < 4200; n++) append(foreign);
+    append(event); append(foreign); // the second-newest matching event must be reachable
+  };
+  f.onPublish = envelope => { for (const event of receipts(envelope, f.route)) dense(event); };
+  f.ports.started = ports.started; f.ports.completed = ports.completed;
+  assert.equal((await f.run()).status, 'started');
+  assert.equal(f.commands.length, 1); assert.equal(f.patches.length, 1);
+  f.completed = true; f.board.issues[0].state = 'done';
+  dense(await terminalFixture(f.c, f.journal.load(), f.route));
+  const before = requests.length;
+  assert.equal((await reconcile(f.c, f.ports, { execute: true })).status, 'reconciled');
+  assert.ok(requests.length - before < 100);
+  assert.ok(requests.some(query => query.next_by_subj));
+  assert.equal(f.journal.load().phase, 'completed');
+});
+
+test('same-ticket foreign or unidentified workers fence pending replay and post-start writes', async t => {
+  for (const command of ['foreign', null, undefined]) {
+    const f = fixture(t); f.acknowledge = false; await f.run();
+    f.workers.active = [{ ticket_id: ticketId(1), command_id: command }];
+    assert.equal((await f.run({ replay: true })).status, 'busy');
+    assert.equal(f.commands.length, 1); assert.equal(f.patches.length, 0);
+    const post = fixture(t);
+    post.onPublish = () => { post.workers.active = [{ ticket_id: ticketId(1), command_id: command }]; };
+    assert.equal((await post.run()).status, 'uncertain');
+    assert.equal(post.commands.length, 1); assert.equal(post.patches.length, 0);
+  }
+  const own = fixture(t); own.acknowledge = false; await own.run();
+  own.workers.active = [{ ticket_id: ticketId(1), command_id: own.commands[0].command_id }];
+  own.acknowledge = true; assert.equal((await own.run()).status, 'started');
+  assert.equal(own.commands.length, 1);
+});
+
+test('every written prerequisite must match completed native truth, including TEST-10 beside completed TEST-9', async t => {
+  const f = fixture(t, [ticket(1), ticket(9, { state: 'done' }), ticket(10, { state: 'blocked' })]);
+  f.board.relations[ticketId(1)].blocked_by = [{ project_id: boardId, issue_id: ticketId(9) }];
+  const base = f.board.issues[0].description_html;
+  f.board.issues[0].description_html += '<h2>Dependencies</h2><p>TEST-9 and TEST-10</p>';
+  assert.equal((await f.run()).status, 'idle'); f.zero();
+  for (const prose of ['None.', 'No dependencies.', 'Not applicable.']) {
+    f.board.issues[0].description_html = base + `<h2>Prerequisites</h2><p>${prose}</p>`;
+    assert.equal((await f.run({ execute: false })).status, 'ready', prose);
+  }
+  f.board.issues[0].description_html = base + '<h2>Dependencies</h2><p>TEST-9 and operator approval</p>';
+  assert.equal((await f.run()).status, 'idle');
+});
+
+test('start_after and finish_after each independently require completed predecessors', async t => {
+  for (const relationship of ['start_after', 'finish_after']) {
+    const f = fixture(t, [ticket(1), ticket(9, { state: 'blocked' })]);
+    f.board.relations[ticketId(1)][relationship] = [{ project_id: boardId, issue_id: ticketId(9) }];
+    assert.equal((await f.run()).status, 'idle', relationship); f.zero();
+    f.board.issues[1].state = 'done';
+    assert.equal((await f.run()).status, 'started', relationship);
+  }
+});
+
+test('cycle configuration and every enabled membership must be explicit and trustworthy', async t => {
+  for (const cycle of [undefined, null, 'false']) {
+    const f = fixture(t); f.board.cycle_view = cycle;
+    assert.equal((await f.run()).status, 'refused'); f.zero();
+  }
+  for (const malformed of ['missing', 'object', 'date']) {
+    const f = fixture(t); f.board.cycle_view = true;
+    f.board.cycles = [{ id: 'cycle', start_date: '2026-10-01', end_date: '2026-10-20' }];
+    f.board.cycle_members = malformed === 'missing' ? {} : { cycle: [ticketId(1)] };
+    if (malformed === 'object') f.board.cycle_members.cycle = [{}];
+    if (malformed === 'date') f.board.cycles[0].end_date = null;
+    assert.equal((await f.run()).status, 'refused'); f.zero();
+  }
+});
+
+test('downstream credit requires this ticket to resolve all observed remaining blockers', t => {
+  const f = fixture(t, [ticket(2), ticket(3), ticket(8, { labels: [] }), ticket(9, { state: 'blocked' })]);
+  f.board.relations[ticketId(3)].blocking = [{ project_id: boardId, issue_id: ticketId(8) }];
+  f.board.relations[ticketId(8)].blocked_by = [3, 9].map(n => ({ project_id: boardId, issue_id: ticketId(n) }));
+  assert.equal(rankCandidates(f.board, clock).ranked.find(r => r.ticket_id === ticketId(3)).rationale.unblocks, 0);
+  f.board.issues[3].state = 'done';
+  assert.equal(rankCandidates(f.board, clock).ranked.find(r => r.ticket_id === ticketId(3)).rationale.unblocks, 1);
+  delete f.board.relations[ticketId(8)];
+  assert.equal(rankCandidates(f.board, clock).ranked.find(r => r.ticket_id === ticketId(3)).rationale.unblocks, 0);
+});
+
+test('null thin rows do not abort a mixed board; acceptance excludes Notes and includes criteria after prose', async t => {
+  const mixed = fixture(t, [ticket(1, { labels: [], description_html: null }), ticket(2)]);
+  assert.equal((await mixed.run()).status, 'started'); assert.equal(mixed.journal.load().ticket_id, ticketId(2));
+  const empty = fixture(t, [ticket(1, { description_html: '<h2>Acceptance criteria</h2><h2>Notes</h2>' +
+    '<ol><li>FR-1: Must preserve a note.</li></ol>' })]);
+  assert.equal((await empty.run()).status, 'idle'); empty.zero();
+  const f = fixture(t, [ticket(1, { description_html: '<h2>Acceptance criteria</h2>' +
+    '<ol><li>FR-1: Must preserve data.</li></ol><p>Additional context.</p>' +
+    '<ol><li>Unspecified behavior without requirement coverage.</li></ol>' })]);
+  assert.equal((await f.run()).status, 'idle'); f.zero();
+  f.board.issues[0].description_html = f.board.issues[0].description_html.replace(
+    'Unspecified behavior without requirement coverage.', 'FR-2: Must reject invalid data.');
+  assert.equal((await f.run()).status, 'started');
+  assert.match(f.commands[0].data.prompt, /FR-2: Must reject invalid data/);
+});
+
+test('ticket-only, project and route journal corruption cannot reuse a saved command for recovery', async t => {
+  for (const identity of ['ticket', 'project', 'route']) {
+    const f = fixture(t); f.acknowledge = false; await f.run();
+    const j = f.journal.load();
+    if (identity === 'ticket') j.ticket_id = ticketId(2);
+    if (identity === 'project') j.project.id = 'other';
+    if (identity === 'route') j.route.profileName = 'other-pm';
+    writeFileSync(f.journal.path, JSON.stringify(j));
+    const bytes = readFileSync(f.journal.path, 'utf8'); f.acknowledge = true;
+    assert.equal((await f.run({ replay: true })).status, 'refused');
+    assert.equal(readFileSync(f.journal.path, 'utf8'), bytes); assert.equal(f.commands.length, 1); assert.equal(f.patches.length, 0);
+  }
+});
+
+test('equivalent configuration key reorder recovers the exact original envelope', async t => {
+  const f = fixture(t); f.acknowledge = false; await f.run();
+  const envelope = JSON.stringify(f.journal.load().intent.envelope);
+  const reorder = value => value && typeof value === 'object' && !Array.isArray(value) ?
+    Object.fromEntries(Object.entries(value).reverse().map(([key, item]) => [key, reorder(item)])) : value;
+  for (const key of ['project', 'runtime', 'contractor']) f.c[key] = reorder(f.c[key]);
+  f.acknowledge = true;
+  assert.equal((await f.run()).status, 'started'); assert.equal(f.commands.length, 1);
+  assert.equal(JSON.stringify(f.journal.load().intent.envelope), envelope);
+});
+
+test('changed eligible AC fences saved prompts before publication, replay and post-start claim', async t => {
+  for (const phase of ['before-publication', 'pending-replay', 'post-start']) {
+    const f = fixture(t); const change = () => { f.board.issues[0].description_html +=
+      '<ol><li>FR-27: Must reject additional invalid input.</li></ol>'; };
+    if (phase === 'before-publication') f.onBoard = n => { if (n === 3) change(); };
+    if (phase === 'post-start') f.onPublish = change;
+    if (phase === 'pending-replay') { f.acknowledge = false; await f.run(); change(); }
+    assert.equal((await f.run({ replay: true })).status, 'uncertain', phase);
+    const original = JSON.stringify(f.journal.load().intent.envelope);
+    const commands = f.commands.length;
+    assert.equal((await f.run({ replay: true })).status, 'uncertain');
+    assert.equal(JSON.stringify(f.journal.load().intent.envelope), original);
+    assert.equal(f.commands.length, commands); assert.equal(f.patches.length, 0);
+  }
+});
+
+test('55-to-65-second hydration cannot use expired worker or deployment truth for publication or claim', async t => {
+  for (const phase of ['publication', 'claim']) for (const truth of ['workers', 'deployment']) {
+    const f = fixture(t); f.clock += 55000;
+    if (truth === 'deployment') {
+      f.workers.observed_at = new Date(f.clock).toISOString();
+      f.deployment.expires_at = new Date(clock + 60000).toISOString();
+    }
+    f.onBoard = n => { if (n === (phase === 'publication' ? 3 : 4)) f.clock += 10000; };
+    assert.equal((await f.run()).status, 'uncertain', `${phase}/${truth}`);
+    assert.equal(f.commands.length, phase === 'publication' ? 0 : 1); assert.equal(f.patches.length, 0);
+  }
+});
+
+test('receipt renewal cannot relocate a per-board journal binding beside the shared lease', async t => {
+  const f = fixture(t); f.acknowledge = false; await f.run();
+  const original = readFileSync(f.journal.path, 'utf8');
+  const bindingPath = `${f.c.runtime.driver_lease}.board-crank.json`;
+  const binding = readFileSync(bindingPath, 'utf8');
+  assert.equal(statSync(bindingPath).mode & 0o777, 0o600);
+  const renewed = clone(f.c); renewed.runtime.state_dir = join(f.dir, 'renewed'); mkdirSync(renewed.runtime.state_dir);
+  f.deployment.state_dir = renewed.runtime.state_dir;
+  const second = new Journal(renewed.runtime.state_dir, boardId);
+  assert.equal((await crank(renewed, { ...f.ports, journal: second }, { execute: true })).status, 'refused');
+  assert.equal(existsSync(second.path), false); assert.equal(readFileSync(f.journal.path, 'utf8'), original);
+  assert.equal(readFileSync(bindingPath, 'utf8'), binding); assert.equal(f.commands.length, 1);
+});
+
+test('dangling, corrupt or mismatched persistent bindings fail closed without replacement', async t => {
+  for (const kind of ['dangling', 'corrupt', 'mismatched']) {
+    const f = fixture(t), bindingPath = `${f.c.runtime.driver_lease}.board-crank.json`;
+    if (kind === 'dangling') symlinkSync(join(f.dir, 'absent'), bindingPath);
+    else writeFileSync(bindingPath, kind === 'corrupt' ? '{invalid' : JSON.stringify({ contract: 'other' }));
+    assert.equal((await f.run()).status, 'refused', kind); f.zero();
+    assert.equal(f.acquireCalls, 0); assert.equal(existsSync(f.journal.path), false);
+    if (kind === 'dangling') assert.ok(lstatSync(bindingPath).isSymbolicLink(), 'dangling binding must survive');
+    else assert.equal(readFileSync(bindingPath, 'utf8'), kind === 'corrupt' ? '{invalid' : JSON.stringify({ contract: 'other' }));
+  }
+});
+
+test('accepted bundle fingerprint includes executable, schema and relative file identity', async t => {
+  const f = fixture(t), root = join(f.dir, 'installed');
+  cpSync(join(scripts, '..'), root, { recursive: true });
+  const accepted = skillDigest(root); f.c.contractor.skill_sha256 = accepted; f.deployment.skill_sha256 = accepted;
+  const facts = await f.ports.runtime();
+  for (const path of ['scripts/momo-board-crank.mjs', 'contracts/board.crank.v1.json']) {
+    const file = join(root, path), before = readFileSync(file);
+    writeFileSync(file, Buffer.concat([before, Buffer.from('\n ')]));
+    const changed = skillDigest(root); assert.notEqual(changed, accepted);
+    assert.throws(() => validateRuntime(f.c, { ...facts, skillSha256: changed }, clock), /contractor source differs/);
+    writeFileSync(file, before);
+  }
+  writeFileSync(join(root, 'scripts/new-file.mjs'), '// identity');
+  assert.notEqual(skillDigest(root), accepted);
 });
