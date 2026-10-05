@@ -127,6 +127,47 @@ re-check timer so the pipeline keeps moving:
 Ten minutes is the default heartbeat for a waiting operator session; shorten only if you are
 polling something that changes faster, lengthen if you are genuinely idle.
 
+## Hourly unattended ready pickup (deployment gated)
+
+`scripts/momo-board-crank.mjs` implements one bounded pass for ready work created
+directly in Todo: a historical Todo transition is not required. It reads current
+manifest, Pilot/Plane, native dependencies, cycle, registry, runtime and worker
+truth. Only triaged, fortified, exact-Todo executable tickets are ranked; one
+existing Momo per-ticket pipeline can be dispatched. Implementation and independent
+spec/quality review remain the normal delegation pipeline in `delegation.md`.
+Cron contains no product implementation and creates no second PM/board driver.
+
+The versioned invocation, runtime gate, receipt and recovery contract is
+[`../contracts/board.crank.v1.md`](../contracts/board.crank.v1.md). Inspect/dry-run
+does not write. Execute reuses the existing shared driver lease. A fresh lease or
+board/runtime implementation WIP is busy; stale driver TTL does not free WIP.
+No evidenced candidate is idle. Managed/shadow ownership, missing prerequisites,
+ambiguous/ineligible routes and unknown readiness refuse explicitly.
+
+Persist the exact command intent outside source before publication. PubAck is
+transport storage, not execution acceptance. Only matching gateway turn/invocation
+started receipts permit the initial exact In Progress transition and missing start
+date. Preserve existing dates, assignees, labels and unrelated content. An uncertain
+dispatch retains its command and ready state; explicit replay sends identical
+bytes. An uncertain write is read back, never blindly repeated or compensated.
+The durable execution fence survives driver TTL and process restarts.
+
+The same Momo runtime owner reconciles a completed execution: matching completed
+receipt AND fresh post-completion no-worker supervision AND fresh final Done state
+are all required. Reconciliation archives proof and lets a later hourly pass
+advance one ticket. An empty snapshot, board claim or expired TTL cannot clear
+the fence. Mutation conflicts remain for explicit owner investigation.
+
+Live activation requires an independently accepted, explicit deployed
+contractor/version and runtime configuration plus a live worker-status producer.
+The PM must wait for the adapter's short shared lease to be released, then acquire
+that same lease before driving implementation/review. Acceptance must verify this
+handoff and bind the stable journal directory and worker-status producer path.
+33GOD-44/46/50 remain unresolved; this source change does not enable them or install
+cron. Keep the legacy five-minute cron disabled. The parent integrates and reviews
+source, proves safe installed busy/idle behavior and actual durable receipts, and
+decides activation. Fixture transports are source verification only.
+
 ## End-of-run report
 
 When you stop, report: board snapshot (counts per state), tickets touched, evidence
