@@ -191,7 +191,7 @@ sensitive is committed (`.env` is gitignored; `.env.op` holds only references).
 Momo and the **Hermes PM** are two drivers of the *same* system:
 
 - **Same** Plane board, **same** Hindsight bank per project — so they **must not double-drive**.
-  WIP=1 needs a **real shared lock** (not politeness): the Hermes sentinel fires on a ~60s
+  The shared driver lease needs to be a **real lock** (not politeness); it is a board-write mutex, not a WIP limit: the Hermes sentinel fires on a ~60s
   timer, so an advisory "read state, then act" has a TOCTOU race. This coexistence lock is on
   the **MVP** critical path (E2/S2.3) the instant Momo installs onto a Hermes-run repo — it is
   *not* deferred with E5.

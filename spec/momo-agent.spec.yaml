@@ -45,7 +45,7 @@ roles:
       - anti-stall                   # never park on operator sign-off
       - respect-the-pillars          # cite the pillar(s) that drove a call
     behavior:
-      wip: 1                         # one active implementation worker, shared with the twin
+      parallel_workers: true         # one worker per ticket, many tickets at once; no default WIP cap
       delegate_all_code_changes: true
       reviewer_ne_implementer: true
       # Drives role.yaml `reconcile:` (heartbeat autonomous pass).
@@ -53,7 +53,7 @@ roles:
         enabled: false               # default off = checkpoint-only heartbeat
         grace_hours: 0               # 0 = adversarially-reviewed review-lane == done
         auto_review: true
-    default_execution: "subagent-driven-development in kanban-orchestrated codex mode (WIP=1, spec-review gate, quality-review gate)"
+    default_execution: "subagent-driven-development in kanban-orchestrated codex mode (one worker per ticket, many tickets in parallel, spec-review gate, quality-review gate)"
     # Rendered into SOUL.md; these are event TYPES only (repo/agent identity
     # never goes in the type — it goes in data.repo / actor.agent_id).
     # No version token: schema revision lives in dataschema/schemaref.
